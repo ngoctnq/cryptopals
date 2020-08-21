@@ -451,6 +451,8 @@ def ladder(u: int, k: int, a: int, p: int) -> int:
 
 Có lẽ việc sử dụng single-coordinate ladder chính là lý do tại sao trong ECIES chỉ sử dụng toạ độ $x$ thay vì cả 2.
 
+Công thức của ladder thực ra nhìn thế thôi nhưng đa phần là hù doạ: trong 2 phép tính lại toạ độ thì phép tính đầu tiên là cộng 2 điểm $(u_2, w_2) + (u_3, w_3)$, và phép thứ 2 là nhân đôi một điểm $(u_2, w_2) + (u_2, w_2) = (u_2, w_2) * 2$. Hai công thức của 2 phép tính trên thì lằng nhằng thật và bạn không cần hiểu mà chỉ cần lấy từ EFD, còn phần lõi của Montgomery ladder thì đơn giản hơn rất nhiều: ở iteration thứ $i$, bạn sẽ có $(u_2, w_2)$ là giá trị sau khi đã nhân đến $k % (2^i)$, và $(u_3, w_3)$ là giá trị đó nhân với $k % (2^i) + 1$. Chứng minh bằng quy nạp sẽ cho ta thấy sau khi qua đủ số-bit-của-k iteration thì chúng ta sẽ có được kết quả đúng.
+
 Đề bài muốn chúng ta map $u^2 = u^3 + 534u^2 + u$ với $u = x-178$. Thay thế vào công thức chính, ta có:
 
 $$
@@ -480,6 +482,36 @@ print(jacobi_symbol(v, p)) # -1
 ```
 
 Giá trị Jacobi symbol $-1$ có nghĩa là không tồn tại căn bậc 2 modulo $p$ của $v$.
+
+Tương tự như challenge trước, chúng ta viết hàm tạo điểm trên curve:
+```python
+def generate_point(a, p, q, r):
+    # generate new point of order r
+    for u in range(1, p):
+        v2 = (u * u * u + a * u * u + u) % p
+        # make sure it's on the twist
+        y = jacobi_symbol(v2, p)
+        assert y != 0
+        if y == 1:
+            continue
+        # craft the point to override the error check
+        point = ladder(u, q // r, a, p)
+        if point == 0: continue
+        assert ladder(point, r, a, p) == 0
+        return point
+```
+
+Và lần này thì hàm ký không cần giá trị toạ độ kia nữa:
+```python
+def get_mac(pubkey: int) -> bytes:
+    return digest(
+        int_to_bytes(pubkey),
+        b"crazy flamboyant for the rap enjoyment",
+        'md5'
+    )
+```
+
+**Ngoài lề:** Có một điều khá thú vị mà mình phát hiện ra: sau khi scale quá order của group thì các lý thuyết bay qua cửa sổ: khi scale với bội số của origin sẽ không về được origin nữa. Chắc là tại khi gặp origin 1 lần thì nó toang, vì origin là một điểm nằm ở vô cực, và $x/w$ chỉ là một ước lượng. Ngoài ra cũng tại điểm 0 và điểm origin đều cùng giá trị 0. Vấn đề này là một phần nhỏ của việc chỉ sử dụng toạ độ $x$, là mỗi giá trị của $x$ tương ứng với 2 điểm trên curve. Điều này cũng làm cho việc hàm fast multiplication (nhân đôi rồi cộng gộp) sẽ bị toang, do không biết được chính xác hiệu của 2 điểm đó; và chúng ta cần hiệu vì curve này không có công thức closed form cho cộng điểm, mà phải sử dụng differential addition.
 
 # [Challenge 61: Duplicate-Signature Key Selection in ECDSA (and RSA)](https://toadstyle.org/cryptopals/61.txt)
 

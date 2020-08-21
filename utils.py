@@ -13,9 +13,6 @@ from tqdm import tqdm, trange
 # SET 1 #
 #########
 
-def hex2b64(hex_: hex) -> bytes:
-    return b64encode(unhexlify(hex_))
-
 def stream_xor(b1: bytes, b2: bytes) -> bytes:
     # will repeat b2 (the key) if needed.
     return bytes(x ^ y for x, y in zip(b1, cycle(b2)))
@@ -276,4 +273,101 @@ def encrypt_ctr(key: bytes,
         nonce += 1
     return ret
 
+#########
+# SET 8 #
+#########
 
+def egcd(m: int, n: int) -> (int, (int, int)):
+    # return gcd(m, n) = mx + ny in this order: (gcd(m, n), (x, y))
+    assert m > 0 and n > 0, "Parameters to `egcd` must be positive."
+    m_coeff = (1, 0)
+    n_coeff = (0, 1)
+    if m < n:
+        m, n = n, m
+        m_coeff, n_coeff = n_coeff, m_coeff
+
+    while True:
+        r, q = divmod(m, n)
+        if q == 0:
+            return n, n_coeff
+        m, n = n, q
+        # q = m - n * r
+        m_coeff, n_coeff = n_coeff, tuple(map(lambda x: x[0] - r * x[1], zip(m_coeff, n_coeff)))
+
+def invmod(n: int, p: int) -> int:
+    '''Returns the modular inverse under Zp.'''
+    # assure positivity
+    n %= p
+
+    g, (x, _) = egcd(n, p)
+    assert g == 1, 'Can only invmod on mutually prime numbers.'
+    return x % p
+
+def invmod_prime(n: int, p: int) -> int:
+    # p has to be prime
+    n %= p
+    return pow(n, p - 2, p)
+
+def chinese_remainder(moduli, remainders):
+    ''' Chinese remainder theorem
+    Returns the remainder and the grand modulus.
+    '''
+    residue = 0
+    prod = 1
+    for modulus in moduli: prod *= modulus
+    for modulus, remainder in zip(moduli, remainders):
+        prod_ = prod // modulus
+        inverse = invmod(prod_, modulus)
+        residue = (residue + remainder * inverse * prod_) % prod
+    return residue, prod
+
+def jacobi_symbol(n: int, p: int):
+    assert n > 0 and p > 0, 'Parameters to Jacobi symbol must be positive!'
+    assert p % 2, 'p must be odd.'
+    sign = 1
+    while True:
+        if p == 1: return sign
+        n %= p
+        if n == 0: return 0
+        even_invert = (p % 8) in (3, 5)
+        while n & 1 == 0:
+            if even_invert:
+                sign = -sign
+            n >>= 1
+        if n == 1: return sign
+        if n % 4 == 3 and p % 4 == 3:
+            sign = -sign
+        n, p = p, n
+
+def sqrtmod(n: int, p: int) -> int:
+    ''' Tonelli-Shanks algorithm '''
+    # find q, s such that q2^s = p-1
+    q = p-1
+    s = 0
+    while q & 1 == 0:
+        s += 1
+        q >>= 1
+    # get a quadratic non-residue
+    for z in range(1, p):
+        if jacobi_symbol(z, p) == -1:
+            break
+    # let
+    m = s
+    c = pow(z, q, p)
+    t = pow(n, q, p)
+    r = pow(n, (q + 1) >> 1, p)
+    # loop
+    while True:
+        if t == 0: return 0
+        if t == 1: return r
+        t2i = t
+        for i in range(1, m):
+            t2i = pow(t2i, 2, p)
+            if t2i == 1: break
+        else:
+            return None
+        b = pow(c, 1 << (m - i - 1), p)
+        m = i
+        c = pow(b, 2, p)
+        t = (t * c) % p
+        r = (r * b) % p

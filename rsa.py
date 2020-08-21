@@ -4,38 +4,9 @@ from typing import Callable
 from math import floor, ceil
 from fractions import Fraction
 from bisect import bisect
+from utils import egcd, invmod, chinese_remainder
 
-def egcd(m: int, n: int) -> (int, (int, int)):
-    # return gcd(m, n) = mx + ny in this order: (gcd(m, n), (x, y))
-    assert m > 0 and n > 0, "Parameters to `egcd` must be positive."
-    m_coeff = (1, 0)
-    n_coeff = (0, 1)
-    if m < n:
-        m, n = n, m
-        m_coeff, n_coeff = n_coeff, m_coeff
-
-    while True:
-        r, q = divmod(m, n)
-        if q == 0:
-            return n, n_coeff
-        m, n = n, q
-        # q = m - n * r
-        m_coeff, n_coeff = n_coeff, tuple(map(lambda x: x[0] - r * x[1], zip(m_coeff, n_coeff)))
-
-def invmod(n: int, p: int) -> int:
-    '''Returns the modular inverse under Zp.'''
-    # assure positivity
-    n %= p
-
-    g, (x, _) = egcd(n, p)
-    assert g == 1, 'Can only invmod on mutually prime numbers.'
-    return x % p
-
-def invmod_prime(n: int, p: int) -> int:
-    assert n % p != 0, 'Can only invmod on mutually prime numbers.'
-    return pow(n, p - 2, p)
-
-def generate_keys(public_exp: int = 65537,
+def generate_key(public_exp: int = 65537,
                   prime_bitlength: int = 2048
                  ) -> (int, int, int):
     # returns N, e, d
@@ -136,16 +107,3 @@ def bleichenbacher_cca_rsa_pkcs1(c: int,
         if len(M) == 1 and M[0][0] == M[0][1]:
             return M[0][0]
         else: i += 1
-
-def chinese_remainder(moduli, remainders):
-    ''' Chinese remainder theorem
-    Returns the remainder and the grand modulus.
-    '''
-    residue = 0
-    prod = 1
-    for modulus in moduli: prod *= modulus
-    for modulus, remainder in zip(moduli, remainders):
-        prod_ = prod // modulus
-        inverse = invmod(prod_, modulus)
-        residue = (residue + remainder * inverse * prod_) % prod
-    return residue, prod

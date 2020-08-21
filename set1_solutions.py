@@ -2,6 +2,8 @@ from utils import * #pylint:disable=unused-wildcard-import
 import requests
 
 # challenge 1
+def hex2b64(hex_: hex) -> bytes:
+    return b64encode(unhexlify(hex_))
 assert hex2b64('49276d206b696c6c696e6720796f757220627261696e206c696b65206120706f69736f6e6f7573206d757368726f6f6d') \
         == b'SSdtIGtpbGxpbmcgeW91ciBicmFpbiBsaWtlIGEgcG9pc29ub3VzIG11c2hyb29t'
     
