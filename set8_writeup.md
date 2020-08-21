@@ -1,0 +1,498 @@
+<sup>Đây là một bài trong series [Cùng giải Cryptopals!](https://viblo.asia/s/cung-giai-cryptopals-68Z00nw9ZkG).<br>Các bạn nên tự làm hoặc vừa đọc vừa làm thay vì đọc lời giải trực tiếp.</sup>
+***
+**<div align="center">Set này hiện tại không được publish trên trang chủ,<br>
+và email thì cũng đến mùa quýt mới được trả lời,<br>
+nên mình đã Google đề để làm  (｡・ ω<)ゞ</div>**
+***
+
+# [Challenge 57: Diffie-Hellman Revisited: Small Subgroup Confinement](https://toadstyle.org/cryptopals/57.txt)
+
+Tạo hàm sinh ra MAC đã.
+```python
+enclen = (p.bit_length() + 7) // 8
+msg = b"crazy flamboyant for the rap enjoyment"
+def get_mac(key: int, msg: bytes) -> bytes:
+    return digest(key.to_bytes(enclen, 'big'), msg, 'md5')
+```
+
+Sử dụng [factordb](factordb.com), chúng ta có các ước của $j$ (có multiplicity 1) bé hơn $2^{16}$:
+```python
+factors = [2, 5, 109, 7963, 8539, 20641, 38833, 39341, 46337, 51977, 54319, 57529]
+```
+
+Do chỉ cần các ước số có tích vừa đủ lớn hơn $q$ để sử dụng định lý thặng dư Trung Hoa, chúng ta lọc bớt mấy số to to đi và tính luôn tích đó:
+```python
+# keep only factors that sum up to be greater than q
+prod = 1
+for i, v in enumerate(factors):
+    prod *= v
+    if prod > q: break
+assert prod > q
+del factors[i + 1:]
+```
+
+Tạo secret key của Bob mà Eve (chúng ta) cần phải lấy được:
+```python
+# bob's secret key
+secret = randrange(1, q)
+```
+
+Với mỗi một ước số trong `factors`, chúng ta lấy MAC (bất hợp lệ) của Bob, rồi bruteforce ra số dư khi chia private exponent của Bob với ước số đó:
+```python
+# remainder modulus `factors`
+remainders = []
+for factor in factors:
+    # get element of order `factor`
+    exponent = (p - 1) // factor
+    while True:
+        h = randrange(1, p)
+        h = pow(h, exponent, p)
+        if h != 1: break
+    # get message encrypted with invalid public key
+    mac = get_mac(pow(h, secret, p), msg)
+    # bruteforce remainders
+    for i in range(factor):
+        if mac == get_mac(pow(h, i, p), msg):
+            remainders.append(i)
+            break
+assert len(factors) == len(remainders)
+```
+
+Và sử dụng định lý thặng dư Trung Hoa để lấy được secret key của Bob:
+```python
+# do chinese remainder theorem
+recovered = 0
+for factor, remainder in zip(factors, remainders):
+    factor_ = prod // factor
+    inverse = invmod(factor_, factor)
+    recovered = (recovered + remainder * inverse * factor_) % prod
+
+assert recovered == secret
+```
+
+**Easter egg:** Tin nhắn được MAC
+> crazy flamboyant for the rap enjoyment
+
+là lyrics từ bài [Protect Ya Neck của Wu-Tang Clan](https://www.youtube.com/watch?v=ZrQ0VMHK0Ec). Đây cũng là title của email cần gửi đến Cryptopals để lấy đề set 8 này.
+
+# [Challenge 58: Pollard's Method for Catching Kangaroos](https://toadstyle.org/cryptopals/58.txt)
+
+Chúng ta implement đúng như hướng dẫn đề bài:
+```python
+def pollard(y, min_exp, max_exp, k=16, p=p, q=q, g=g):
+    # generate params from k
+    f = lambda y: 2 ** (y % k)
+    '''
+    avg of f is (2 ^ k - 1) / k
+    multiplied by 4 -> (2 ^ (k+2) - 4) / k
+    '''
+    N = (2 ** (k + 2)) // k
+
+    # get the endpoint
+    xT = 0
+    yT = pow(g, max_exp, p)
+    for _ in range(N):
+        fT = f(yT)
+        xT += fT
+        yT = (yT * pow(g, fT, p)) % p
+
+    # then search if we met
+    xW = 0
+    yW = y
+    while xW < max_exp - min_exp + xT:
+        fW = f(yW)
+        xW += fW
+        yW = (yW * pow(g, fW, p)) % p
+
+        if yW == yT:
+            return max_exp + xT - xW
+```
+
+Và chạy 2 tests:
+```python
+y = 7760073848032689...
+res = pollard(y, 0, 2 ** 20)
+assert pow(g, res, p) == y
+print(res) # 705485
+
+y = 9388897478013399...
+res = pollard(y, 0, 2 ** 40, k=20)
+assert pow(g, res, p) == y
+print(res) # 359579674340
+```
+
+Chú ý để $k$ cao lên để kangaroo nhảy được xa hơn. Với $k=16$, ước tính loop sau mất tầm 30' trường hợp xấu nhất; với $k=20$, 3 phút (thực tế mất 2'), và với $k=25$, 1' (nhưng loop đầu đã mất 2 phút).
+
+Ở phần 2, chúng ta copy i xì code của bài trước. Trong đó, các ước bé hơn $2^{16}$ của $j$ là:
+```python
+factors = [2, 12457, 14741, 18061, 31193, 33941, 63803]
+prod = 2 * 12457 * 14741 * 18061 * 31193 * 33941 * 63803
+```
+
+Lần này chúng ta sẽ cần dùng đến public key của Bob:
+```python
+# bob's key
+secret = randrange(1, q)
+public = pow(g, secret, p)
+```
+
+Dùng code của bài trước chúng ta sẽ có được số dư `residue` khi chia `secret` cho `prod`. Sử dụng Pollard's Method như bài trước và thế là hết:
+```python
+# y = g^x = g^(n + mr) = g^n + (g^r)^m
+for k in range(25, 0, -1):
+    m = pollard(
+        (public * pow(g, q - residue, p)) % p,
+        0,
+        q // prod + 1,
+        k = k,
+        g = pow(g, prod, p)
+    )
+    if m is not None: break
+recovered = prod * m + residue
+assert recovered == secret
+```
+
+Nên nhớ rằng, Pollard's Method là probabilistic, nó không chắc chắn sẽ đưa ra đáp án. Trong trường hợp đó, hãy đổi $k$ xem có giải ra được không nhé.
+
+# [Challenge 59: Elliptic Curve Diffie-Hellman and Invalid-Curve Attacks](https://toadstyle.org/cryptopals/59.txt)
+
+Việc đầu tiên cần làm là implement thuật toán Elliptic Curve, bắt đầu từ `WeierstrassCurve`:
+```python
+class WeierstrassCurve:
+    def __init__(self, a, b, p, g, q, order):
+        '''
+        @a, b   params of the curve equation
+                    y^2 = x^3 + ax + b
+        @p      the GF(p) to work on
+        @g      the coordinates of the generator
+        @q      the order of the generator
+        @order  the number of elements in the finite field
+                    generated by the curve on GF(p)
+        '''
+        self.a = a
+        self.b = b
+        self.p = p
+        self.q = q
+        self.order = order
+        self.g = self.point(*g)
+        self.id = self.point(0, 1)
+
+        assert self.g * q == self.id
+    
+    def point(self, x, y):
+        return WeierstrassPoint(self, x, y)
+
+    def __eq__(self, obj):
+        # same config different object is different field
+        # this is to prevent recursive comparison
+        return id(self) == id(obj)
+
+    def get_eqn(self):
+        ret = 'x^3'
+        if self.a > 0:
+            ret += f' + {self.a}x'
+        elif self.a < 0:
+            ret += f' - {-self.a}x'
+        if self.b > 0:
+            ret += f' + {self.b}'
+        elif self.b < 0:
+            ret += f' - {-self.b}'
+        return ret
+
+    def generate_keypair(self):
+        private = randrange(0, self.q)
+        public = self.g * private
+        return private, public
+```
+
+Và class cho một điểm bất kỳ trên curve đó. Chú ý, disable cái assertion về điểm nằm trong curve, và dòng tối ưu nhân điểm, để attack này hoạt động.
+```python
+class WeierstrassPoint:
+    def __init__(self, field, x, y):
+        self.field = field
+        self.x = x
+        self.y = y
+
+        # make sure the point is valid -- disable this for the attack
+        # if x != 0 or y != 1:
+        #     assert (pow(x, 3, curve.p) + curve.a * x + curve.b) % curve.p == pow(y, 2, curve.p), "Point not on the curve!"
+
+
+    def __str__(self):
+        return f'{(self.x, self.y) if self != self.field.id else "Identity"}' + \
+               f' of {self.field.get_eqn()}'
+    
+    __repr__ = __str__
+
+    def copy(self):
+        # shallow copy
+        return WeierstrassPoint(self.field, self.x, self.y)
+
+    def __neg__(self):
+        return WeierstrassPoint(self.field, self.x, self.field.p - self.y)
+
+    def __eq__(self, obj):
+        return self.field == obj.field and self.x == obj.x and self.y == obj.y
+
+    def __add__(self, obj):
+        assert isinstance(self, WeierstrassPoint) and isinstance(obj, WeierstrassPoint), \
+                'Can only add Point with another Point.'
+        assert self.field == obj.field, 'Points must be of the same field.'
+        
+        field = self.field
+        if self == field.id:
+            return obj
+        if obj == field.id:
+            return self
+        if self == -obj:
+            return field.id
+
+        if self == obj:
+            m = ((3 * self.x * self.x + field.a) * invmod(2 * self.y, field.p)) % field.p
+        else:
+            m = ((obj.y - self.y) * invmod(obj.x - self.x, field.p)) % field.p
+        
+        new_x = (m * m - self.x - obj.x) % field.p
+        new_y = (m * (self.x - new_x) - self.y) % field.p
+        
+        return WeierstrassPoint(field, new_x, new_y)
+
+    def __mul__(self, scalar):
+        assert isinstance(self, WeierstrassPoint) and isinstance(scalar, int), \
+                'Can only multiply Point with a scalar.'
+        # disable this for the attack
+        # scalar %= self.field.q
+        pow2 = self
+        acc = self.field.id
+        while True:
+            if scalar & 1:
+                acc += pow2
+            scalar >>= 1
+            if scalar == 0: return acc
+            pow2 += pow2
+    
+    def __rmul__(self, scalar):
+       return self * scalar
+```
+
+Implement hàm lấy [Jacobi symbol](https://en.wikipedia.org/wiki/Jacobi_symbol) vì sau này sẽ cần dùng:
+```python
+def jacobi_symbol(n: int, p: int):
+    assert n > 0 and p > 0, 'Parameters to Jacobi symbol must be positive!'
+    assert p % 2, 'p must be odd.'
+    sign = 1
+    while True:
+        if p == 1: return sign
+        n %= p
+        if n == 0: return 0
+        even_invert = (p % 8) in (3, 5)
+        while n & 1 == 0:
+            if even_invert:
+                sign = -sign
+            n >>= 1
+        if n == 1: return sign
+        if n % 4 == 3 and p % 4 == 3:
+            sign = -sign
+        n, p = p, n
+```
+
+Implement luôn hàm căn bậc 2 theo modulo ([thuật toán Tonelli-Shanks](https://en.wikipedia.org/wiki/Tonelli%E2%80%93Shanks_algorithm)):
+```python
+def sqrtmod(n: int, p: int) -> int:
+    ''' Tonelli-Shanks algorithm '''
+    # find q, s such that q2^s = p-1
+    q = p-1
+    s = 0
+    while q & 1 == 0:
+        s += 1
+        q >>= 1
+    # get a quadratic non-residue
+    for z in range(1, p):
+        if jacobi_symbol(z, p) == -1:
+            break
+    # let
+    m = s
+    c = pow(z, q, p)
+    t = pow(n, q, p)
+    r = pow(n, (q + 1) >> 1, p)
+    # loop
+    while True:
+        if t == 0: return 0
+        if t == 1: return r
+        t2i = t
+        for i in range(1, m):
+            t2i = pow(t2i, 2, p)
+            if t2i == 1: break
+        else:
+            return None
+        b = pow(c, 1 << (m - i - 1), p)
+        m = i
+        c = pow(b, 2, p)
+        t = (t * c) % p
+        r = (r * b) % p
+```
+
+Test handshake giữa Alice và Bob:
+```python
+curve = WeierstrassCurve(
+    a = -95051,
+    b = 11279326,
+    p = 233970423115425145524320034830162017933,
+    g = (182, 85518893674295321206118380980485522083),
+    q = 29246302889428143187362802287225875743,
+    order = (29246302889428143187362802287225875743 << 3)
+)
+# test handshake
+priv_a, pub_a = field.generate_keypair()
+priv_b, pub_b = field.generate_keypair()
+assert pub_a * priv_b == pub_b * priv_a
+```
+
+Tạo hàm ký với key chung lấy được từ Diffie-Hellman:
+```python
+# according to ECIES, x coord is enough (uh, no?)
+# since y can be computed from x *without* the sign, we add that too
+msg = b"crazy flamboyant for the rap enjoyment"
+def get_mac(pubkey: Point) -> bytes:
+    return digest(int_to_bytes(pubkey.x, curve.p.bit_length()) + \
+        (b'+' if pubkey.y * 2 < curve.p else b'-'), msg, 'md5')
+```
+
+Trong tiêu chuẩn [ECIES](https://en.wikipedia.org/wiki/Integrated_Encryption_Scheme#Encryption), họ chỉ dùng toạ độ $x$ trong public key để ký. Tuy nhiên, với mỗi một giá trị $x$ tồn tại 2 giá trị $y$, nên trong KDF của chúng ta dùng cả 2: $x$ và dấu của $y$.
+
+Tạo hàm generate một điểm có order $r$ trên curve tương tự với RSA:
+```python
+def generate_point(curve, a, b, q, r):
+    # generate new point of order r without randomness
+    point = curve.id.copy()
+    for x in range(curve.p):
+        y = sqrtmod((pow(x, 3, curve.p) + a * x + b) % curve.p, curve.p)
+        if y is None: continue
+        # craft the point to override the error check
+        point.x, point.y = x, y
+        point *= (q // r)
+        assert point * r == curve.id
+        if point != curve.id: return point
+```
+
+Lần lượt tạo các điểm trên 3 curve fake kia để lấy các số dư như challenge 57. Trong đó, các ước nguyên tố đã được lọc sao cho chỉ giữ các số nguyên tố khác nhau và nhỏ nhất sao cho tích của chúng vẫn lớn hơn order của generator.
+```python
+# y^2 = x^3 - 95051*x + 210     233970423115425145550826547352470124412
+a, b1, q1 = -95051, 210, 233970423115425145550826547352470124412
+factors1 = [3, 11, 23, 31, 89, 4999, 28411]
+remainders1 = []
+for factor in factors1:
+    point = generate_point(curve, a, b1, q1, factor)
+    mac = get_mac(point * priv_a)
+    for r in range(factor):
+        if mac == get_mac(point * r):
+            remainders1.append(r)
+            break
+
+# y^2 = x^3 - 95051*x + 504     233970423115425145544350131142039591210
+b2, q2 = 504, 233970423115425145544350131142039591210
+factors2 = [5, 7, 61, 12157]
+remainders2 = []
+for factor in factors2:
+    point = generate_point(curve, a, b2, q2, factor)
+    mac = get_mac(point * priv_a)
+    for r in range(factor):
+        if mac == get_mac(point * r):
+            remainders2.append(r)
+            break
+
+# y^2 = x^3 - 95051*x + 727     233970423115425145545378039958152057148
+b3, q3 = 727, 233970423115425145545378039958152057148
+factors3 = [37, 67, 607, 1979, 13327, 13799]
+remainders3 = []
+for factor in factors3:
+    point = generate_point(curve, a, b3, q3, factor)
+    mac = get_mac(point * priv_a)
+    for r in range(factor):
+        if mac == get_mac(point * r):
+            remainders3.append(r)
+            break
+```
+
+Và lấy lại private key thôi:
+```python
+recovered, modulus = chinese_remainder(
+    factors1 + factors2 + factors3,
+    remainders1 + remainders2 + remainders3
+)
+
+assert modulus >= curve.q
+assert recovered == priv_a
+```
+
+# [Challenge 60: Single-Coordinate Ladders and Insecure Twists](https://toadstyle.org/cryptopals/60.txt)
+
+Mình đã vào EFD để tìm công thức nhưng lại phải ra tay trắng vì không hiểu họ viết gì cả...
+
+Viết code (hay chính xác là sửa pseudocode trong đề) tính scale theo ladder:
+```python
+def ladder(u: int, k: int, a: int, p: int) -> int:
+    # calculate u * k, with u being the first coordinate and k a scalar
+    u2, w2 = 1, 0
+    u3, w3 = u, 1
+    for i in reversed(range(p.bit_length())):
+        b = 1 & (k >> i)
+        if b: u2, u3, w2, w3 = u3, u2, w3, w2
+
+        # don't compute this twice in the second line below
+        u2u2, u2w2, w2w2 = u2 * u2, u2 * w2, w2 * w2
+        u3, w3 = pow(u2 * u3 - w2 * w3, 2, p), (u * (u2 * w3 - w2 * u3) ** 2) % p
+        u2, w2 = pow(u2u2 - w2w2, 2, p), (4 * u2w2 * (u2u2 + a * u2w2 + w2w2)) % p
+
+        if b: u2, u3, w2, w3 = u3, u2, w3, w2
+        
+    return (u2 * invmod_prime(w2, p)) % p
+```
+
+Có lẽ việc sử dụng single-coordinate ladder chính là lý do tại sao trong ECIES chỉ sử dụng toạ độ $x$ thay vì cả 2.
+
+Đề bài muốn chúng ta map $u^2 = u^3 + 534u^2 + u$ với $u = x-178$. Thay thế vào công thức chính, ta có:
+
+$$
+\begin{aligned}
+y^2 &= (x-178)^3 + 534(x-178)^2 + (x-178) \\
+&= x^3 - 534x^2 + 95052x - 5639752 + 534x^2 - 190104x + 16919256 + x - 178 \\
+&= x^3 - 95051x + 11279326
+\end{aligned}
+$$
+
+Đây chính là Weierstrass Curve từ challenge trước.
+
+Check kèo implementation của ladder:
+```python
+p = 233970423115425145524320034830162017933
+q = 29246302889428143187362802287225875743
+a = 534 # b = 1
+assert ladder(4, q, a, p) == 0
+```
+
+Và thử như đề bài sẽ có:
+```python
+u = 76600469441198017145391791613091732004
+v = (u * u * u + a * u * u + u) % p
+print(ladder(u, 11, a, p)) # 0
+print(jacobi_symbol(v, p)) # -1
+```
+
+Giá trị Jacobi symbol $-1$ có nghĩa là không tồn tại căn bậc 2 modulo $p$ của $v$.
+
+# [Challenge 61: Duplicate-Signature Key Selection in ECDSA (and RSA)](https://toadstyle.org/cryptopals/61.txt)
+
+# [Challenge 62: Key-Recovery Attacks on ECDSA with Biased Nonces](https://toadstyle.org/cryptopals/62.txt)
+
+# [Challenge 63: Key-Recovery Attacks on GCM with Repeated Nonces](https://toadstyle.org/cryptopals/63.txt)
+
+# [Challenge 64: Key-Recovery Attacks on GCM with a Truncated MAC](https://toadstyle.org/cryptopals/64.txt)
+
+# [Challenge 65: Truncated-MAC GCM Revisited: Improving the Key-Recovery Attack via Ciphertext Length Extension](https://toadstyle.org/cryptopals/65.txt)
+
+# [Challenge 66: Exploiting Implementation Errors in Diffie-Hellman](https://toadstyle.org/cryptopals/66.txt)
+
+***
+**<div align="center">Hết thật rồi đó.</div>**
+***
