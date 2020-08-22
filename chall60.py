@@ -31,7 +31,7 @@ def get_mac(pubkey: int) -> bytes:
     )
 
 # multiprocessing code
-from multiprocessing import Pool, cpu_count, Value
+from multiprocessing import Pool, cpu_count, Value, Process
 from itertools import repeat
 
 retval = Value('i', -1)
@@ -79,7 +79,7 @@ def generate_point(a, p, q, r):
 
 secret = randrange(1, curve.q)
 public = _ladder(4, secret, curve.a, curve.p)
-factors = [11, 107, 197, 1621, 105143] #, 405373, 2323367]
+factors = [11, 107, 197, 1621, 105143, 405373, 2323367]
 remainders = []
 
 print('Getting individual factors...')
@@ -127,7 +127,7 @@ remainders = remainders[0]
 y = sqrtmod((public ** 3 + curve.a * public ** 2 + public) % curve.p, curve.p)
 public = curve.point(public, y)
 
-def pollard(y, min_exp, max_exp, g, k=16):
+def pollard(y, min_exp, max_exp, g, k=16, progress=True):
     # generate params from k
     f = lambda y: 2 ** (y.x % k)
     '''
@@ -140,7 +140,11 @@ def pollard(y, min_exp, max_exp, g, k=16):
     # get the endpoint
     xT = 0
     yT = g * max_exp
-    for _ in trange(N):
+    if progress:
+        ranger = trange(N)
+    else:
+        ranger = range(N)
+    for _ in ranger:
         fT = f(yT)
         xT += fT
         yT += g * fT
@@ -148,21 +152,49 @@ def pollard(y, min_exp, max_exp, g, k=16):
     # then search if we met
     xW = 0
     yW = y
+    if progress:
+        pbar = tqdm(total=max_exp - min_exp + xT)
     while xW < max_exp - min_exp + xT:
         fW = f(yW)
         xW += fW
         yW += g * fW
 
+        if progress:
+            pbar.update(fW)
+
         if yW == yT:
+            print(max_exp + xT - xW)
             return max_exp + xT - xW
 
 # y = g^x = g^(n + mr) = g^n + (g^r)^m
+# parallel compute all 4 instances
+procs = []
+pollard_mod = 23
+print(secret)
+param = True
 for remainder in remainders:
-    m = pollard(
-        public - curve.g * remainder,
-        0,
-        curve.q // factor,
-        g = curve.g * factor,
-        k = 22
-    )
-    print(secret, m)
+    procs.append(Process(target=pollard,
+        args=(
+            public - curve.g * remainder,
+            0,
+            curve.q // factor,
+            curve.g * factor,
+            pollard_mod,
+            param
+        )
+    ))
+    if param: param = False
+    procs.append(Process(target=pollard,
+        args=(
+            -public - curve.g * remainder,
+            0,
+            curve.q // factor,
+            curve.g * factor,
+            pollard_mod,
+            param
+        )
+    ))
+for proc in procs:
+    proc.start()
+for proc in procs:
+    proc.join()
