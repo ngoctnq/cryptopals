@@ -1,7 +1,9 @@
 from montgomery import MontgomeryCurve, _ladder
 from utils import jacobi_symbol, chinese_remainder, sqrtmod
-from random import randrange
+from random import randrange, seed
 from tqdm.auto import tqdm, trange
+
+# seed(69420)
 
 curve = MontgomeryCurve(
     a = 534,
@@ -12,12 +14,12 @@ curve = MontgomeryCurve(
     order = (29246302889428143187362802287225875743 << 3)
 )
 
-# assert _ladder(4, self.q, self.a, self.p) == 0
+assert _ladder(4, self.q, self.a, self.p) == 0
 
-# u = 76600469441198017145391791613091732004
-# v = (u * u * u + a * u * u + u) % p
-# print(_ladder(u, 11, curve.a, curve.p))
-# print(jacobi_symbol(v, p))
+u = 76600469441198017145391791613091732004
+v = (u * u * u + a * u * u + u) % p
+print(_ladder(u, 11, curve.a, curve.p))
+print(jacobi_symbol(v, p))
 
 # order of the twist
 q_ = 2 * curve.p + 2 - curve.order # = 2^2 x 11 x 107 x 197 x 1621 x 105143 x 405373 x 2323367 x ...
@@ -79,7 +81,7 @@ def generate_point(a, p, q, r):
 
 secret = randrange(1, curve.q)
 public = _ladder(4, secret, curve.a, curve.p)
-factors = [11, 107, 197, 1621, 105143, 405373, 2323367]
+factors = [11, 107, 197, 1621, 105143, 405373, 2323367]#, 1571528514013]
 remainders = []
 
 print('Getting individual factors...')
@@ -124,10 +126,13 @@ while len(factors) > 1:
 factor = factors[0]
 remainders = remainders[0]
 
+# print(factor)
+# print(remainders)
+
 y = sqrtmod((public ** 3 + curve.a * public ** 2 + public) % curve.p, curve.p)
 public = curve.point(public, y)
 
-def pollard(y, min_exp, max_exp, g, k=16, progress=True):
+def pollard(y, min_exp, max_exp, g, k=24, progress=True):
     # generate params from k
     f = lambda y: 2 ** (y.x % k)
     '''
@@ -137,6 +142,7 @@ def pollard(y, min_exp, max_exp, g, k=16, progress=True):
     N = (2 ** (k + 2)) // k
 
     assert y.curve == g.curve
+
     # get the endpoint
     xT = 0
     yT = g * max_exp
@@ -163,34 +169,35 @@ def pollard(y, min_exp, max_exp, g, k=16, progress=True):
             pbar.update(fW)
 
         if yW == yT:
-            print(max_exp + xT - xW)
             return max_exp + xT - xW
 
-# y = g^x = g^(n + mr) = g^n + (g^r)^m
+# y = g^x = g^(r + qf) = g^r + (g^f)^q
+def pollard_helper(public, r, progress=True):
+    y = public - curve.g * r
+    max_ = curve.q // factor
+    print('param', max_, r)
+    q = pollard(y, 0, max_, y.curve.g * factor, 23, progress)
+    if q is None: return
+    ret = (q * factor + r) % curve.q
+    print(ret)
+    return ret
+
 # parallel compute all 4 instances
 procs = []
-pollard_mod = 23
-print(secret)
 param = True
 for remainder in remainders:
-    procs.append(Process(target=pollard,
+    procs.append(Process(target=pollard_helper,
         args=(
-            public - curve.g * remainder,
-            0,
-            curve.q // factor,
-            curve.g * factor,
-            pollard_mod,
+            public,
+            remainder,
             param
         )
     ))
     if param: param = False
-    procs.append(Process(target=pollard,
+    procs.append(Process(target=pollard_helper,
         args=(
-            -public - curve.g * remainder,
-            0,
-            curve.q // factor,
-            curve.g * factor,
-            pollard_mod,
+            -public,
+            remainder,
             param
         )
     ))

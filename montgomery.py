@@ -1,7 +1,8 @@
 from utils import invmod_prime, sqrtmod
+from ecc import EllipticCurve, EllipticPoint
 from random import randrange
 
-class MontgomeryCurve:
+class MontgomeryCurve(EllipticCurve):
     def __init__(self, a, b, p, g, q, order):
         '''
         @a, b   params of the curve equation
@@ -30,99 +31,38 @@ class MontgomeryCurve:
         # same config different object is different curve
         # this is to prevent recursive comparison
         return id(self) == id(obj)
-
-    def generate_keypair(self):
-        private = randrange(0, self.q)
-        public = self.g * private
-        return private, public
     
     def generate_point(self):
         while True:
-            x = randrange(0, self.p)
+            x = randrange(1, self.order)
             y2 = ((x ** 3 + self.a * x * x + x) * invmod_prime(self.b, self.p)) % self.p
             y = sqrtmod(y2, self.p) 
             if y is not None:
                 return self.point(x, y)
 
-class MontgomeryPoint:
+class MontgomeryPoint(EllipticPoint):
     def __init__(self, curve, x, y):
-        self.curve = curve
-        self.x = x
-        self.y = y
+        super().__init__(curve, x, y)
 
         if x != 1 or y != 0:
             assert (x ** 3 + curve.a * x * x + x) % curve.p == (curve.b * y * y) % curve.p, "Point not on the curve!"
 
-    def __str__(self):
-        return f'{(self.x, self.y) if self != self.curve.id else "Identity"}'
-    
-    __repr__ = __str__
+    def _add(self, obj):
+        curve, x1, y1, x2, y2 = self.curve, self.x, self.y, obj.x, obj.y
+        a, b, p = curve.a, curve.b, curve.p
+        x3 = b * pow(y2 - y1, 2, p) * pow(x2 - x1, p - 1 - 2, p) - a - x1 - x2
+        y3 = (2 * x1 + x2 + a) * (y2 - y1) * invmod_prime(x2 - x1, p) - b * pow(y2 - y1, 3, p) * pow(x2 - x1, p - 1 - 3, p) - y1
+        return MontgomeryPoint(curve, x3 % p, y3 % p)
 
-    def copy(self):
-        # shallow copy
-        return MontgomeryPoint(self.curve, self.x, self.y)
-
-    def __neg__(self):
-        return MontgomeryPoint(self.curve, self.x, self.curve.p - self.y)
-
-    def __eq__(self, obj):
-        return self.curve == obj.curve and self.x == obj.x and self.y == obj.y
-
-    def __add__(self, obj):
-        assert isinstance(self, MontgomeryPoint) and isinstance(obj, MontgomeryPoint), \
-                'Can only add Point with another Point.'
-        assert self.curve == obj.curve, 'Points must be of the same curve.'
-        
-        curve = self.curve
-        if self == curve.id:
-            return obj
-        if obj == curve.id:
-            return self
-        if self == -obj:
-            return curve.id
-
-        if self == obj:
-            x, y = _double_xy((self.x, self.y), self.curve.a, self.curve.b, self.curve.p)
-        else:
-            x, y = _add_xy((self.x, self.y), (obj.x, obj.y), self.curve.a, self.curve.b, self.curve.p)
-        
-        return MontgomeryPoint(curve, x, y)
-
-    def __sub__(self, obj):
-        assert isinstance(self, MontgomeryPoint) and isinstance(obj, MontgomeryPoint), \
-                'Can only subtract Point with another Point.'
-        return self + (-obj)
-
-    def __mul__(self, scalar):
-        assert isinstance(self, MontgomeryPoint) and isinstance(scalar, int), \
-                'Can only multiply Point with a scalar.'
-        scalar %= self.curve.q
-        pow2 = self
-        acc = self.curve.id
-        while True:
-            if scalar & 1:
-                acc += pow2
-            scalar >>= 1
-            if scalar == 0: return acc
-            pow2 += pow2
-    
-    def __rmul__(self, scalar):
-       return self * scalar
+    def _double(self):
+        curve, x, y = self.curve, self.x, self.y
+        a, b, p = curve.a, curve.b, curve.p
+        x3 = b * pow(3 * x * x + 2 * a * x + 1, 2, p) * pow(2 * b * y, p - 1 - 2, p) - a - x - x
+        y3 = (2 * x + x + a) * (3 * x * x + 2 * a * x + 1) * invmod_prime(2 * b * y, p) - b * pow(3 * x * x + 2 * a * x + 1, 3, p) * pow(2 * b * y, p - 1 - 3, p) - y
+        return MontgomeryPoint(curve, x3 % p, y3 % p)
 
     def ladder(self, scalar) -> int:
         return _ladder(self.x, scalar, self.curve.a, self.curve.p, self.curve.order)
-
-def _add_xy(p1, p2, a, b, p):
-    (x1, y1), (x2, y2) = p1, p2
-    x3 = b * pow(y2 - y1, 2, p) * pow(x2 - x1, p - 1 - 2, p) - a - x1 - x2
-    y3 = (2 * x1 + x2 + a) * (y2 - y1) * invmod_prime(x2 - x1, p) - b * pow(y2 - y1, 3, p) * pow(x2 - x1, p - 1 - 3, p) - y1
-    return x3 % p, y3 % p
-
-def _double_xy(point, a, b, p):
-    x, y = point
-    x3 = b * pow(3 * x * x + 2 * a * x + 1, 2, p) * pow(2 * b * y, p - 1 - 2, p) - a - x - x
-    y3 = (2 * x + x + a) * (3 * x * x + 2 * a * x + 1) * invmod_prime(2 * b * y, p) - b * pow(3 * x * x + 2 * a * x + 1, 3, p) * pow(2 * b * y, p - 1 - 3, p) - y
-    return x3 % p, y3 % p
 
 def _add_xz(p1: (int, int), p2: (int, int), u: int, p: int):
     # p2 - p1 = u

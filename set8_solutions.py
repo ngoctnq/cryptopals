@@ -1,10 +1,11 @@
 from random import randrange
 from hmac import digest
-from rsa import invmod, int_to_bytes, chinese_remainder
+from rsa import int_to_bytes, chinese_remainder, generate_key, pkcs15_pad, getPrime
 from tqdm import trange, tqdm
-from ecc import sqrtmod, jacobi_symbol
+from utils import sqrtmod, jacobi_symbol, invmod, invmod_prime, factorize_factordb
 from weierstrass import WeierstrassCurve, WeierstrassPoint
-from montgomery import ladder
+from montgomery import _ladder as ladder
+from pprint import pprint
 
 def chall57():
     p = 7199773997391911030609999317773941274322764333428698921736339643928346453700085358802973900485592910475480089726140708102474957429903531369589969318716771
@@ -232,4 +233,58 @@ def chall59():
 
 # chall60 is in a separate file.
 
-# chall60()
+def chall61():
+    # from ecc import sign, verify
+    # from hashlib import sha256
+    # curve = WeierstrassCurve(
+    #     a = -95051,
+    #     b = 11279326,
+    #     p = 233970423115425145524320034830162017933,
+    #     g = (182, 85518893674295321206118380980485522083),
+    #     q = 29246302889428143187362802287225875743,
+    #     order = (29246302889428143187362802287225875743 << 3)
+    # )
+    # private, public = curve.generate_keypair()
+
+    # message = b"leavin' is the hardest thing to do"
+    # signature = sign(message, private, curve)
+    # assert verify(message, signature, public)
+
+    # # copy straight from verify code
+    # r, s = signature
+    # q = curve.q
+    # hashed = int.from_bytes(sha256(message).digest(), 'big')
+    # hashed >>= max(hashed.bit_length() - q.bit_length(), 0)
+    # s_inv = invmod_prime(s, q)
+    # u1 = (hashed * s_inv) % q
+    # u2 = (r * s_inv) % q
+    # # craft public key
+    # d_ = randrange(1, q)
+    # t = (u1 + u2 * d_) % q
+    # R = u1 * curve.g + u2 * public
+    # g_ = invmod(t, q) * R
+    # Q_ = d_ * g_
+    # Q_.curve = WeierstrassCurve(
+    #     a = -95051,
+    #     b = 11279326,
+    #     p = 233970423115425145524320034830162017933,
+    #     g = (g_.x, g_.y),
+    #     q = 29246302889428143187362802287225875743,
+    #     order = (29246302889428143187362802287225875743 << 3)
+    # )
+    # assert verify(message, signature, Q_)
+
+    # reverse RSA-based DSA
+    message = b"but being left is harder yes it's true"
+    msg = int.from_bytes(pkcs15_pad(message, 64), 'big')
+    n, e, d = generate_key(prime_bitlength=64)
+    enc = pow(msg, e, n)
+
+    for _ in range(10):
+        p = getPrime(128)
+        print(p)
+        print(factorize_factordb(p-1))
+    # while True:
+    #     ...
+
+chall61()

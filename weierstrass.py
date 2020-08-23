@@ -1,7 +1,8 @@
-from utils import invmod
+from utils import invmod, sqrtmod
+from ecc import EllipticCurve, EllipticPoint
 from random import randrange
 
-class WeierstrassCurve:
+class WeierstrassCurve(EllipticCurve):
     def __init__(self, a, b, p, g, q, order):
         '''
         @a, b   params of the curve equation
@@ -25,81 +26,35 @@ class WeierstrassCurve:
     def point(self, x, y):
         return WeierstrassPoint(self, x, y)
 
-    def __eq__(self, obj):
-        # same config different object is different curve
-        # this is to prevent recursive comparison
-        return id(self) == id(obj)
+    def generate_point(self):
+        while True:
+            x = randrange(1, self.order)
+            y2 = (x ** 3 + self.a * x + self.b) % self.p
+            y = sqrtmod(y2, self.p) 
+            if y is not None:
+                return self.point(x, y)
 
-    def generate_keypair(self):
-        private = randrange(0, self.q)
-        public = self.g * private
-        return private, public
 
-class WeierstrassPoint:
+class WeierstrassPoint(EllipticPoint):
     def __init__(self, curve, x, y):
-        self.curve = curve
-        self.x = x
-        self.y = y
+        super().__init__(curve, x, y)
 
         # make sure the point is valid
         if x != 0 or y != 1:
             assert (pow(x, 3, curve.p) + curve.a * x + curve.b) % curve.p == pow(y, 2, curve.p), "Point not on the curve!"
 
-    def __str__(self):
-        return f'{(self.x, self.y) if self != self.curve.id else "Identity"}'
-    
-    __repr__ = __str__
-
-    def copy(self):
-        # shallow copy
-        return WeierstrassPoint(self.curve, self.x, self.y)
-
-    def __neg__(self):
-        return WeierstrassPoint(self.curve, self.x, self.curve.p - self.y)
-
-    def __eq__(self, obj):
-        return self.curve == obj.curve and self.x == obj.x and self.y == obj.y
-
-    def __add__(self, obj):
-        assert isinstance(self, WeierstrassPoint) and isinstance(obj, WeierstrassPoint), \
-                'Can only add Point with another Point.'
-        assert self.curve == obj.curve, 'Points must be of the same curve.'
-        
+    def _add(self, obj):
         curve = self.curve
-        if self == curve.id:
-            return obj
-        if obj == curve.id:
-            return self
-        if self == -obj:
-            return curve.id
-
-        if self == obj:
-            m = ((3 * self.x * self.x + curve.a) * invmod(2 * self.y, curve.p)) % curve.p
-        else:
-            m = ((obj.y - self.y) * invmod(obj.x - self.x, curve.p)) % curve.p
-        
+        m = ((obj.y - self.y) * invmod(obj.x - self.x, curve.p)) % curve.p
         new_x = (m * m - self.x - obj.x) % curve.p
         new_y = (m * (self.x - new_x) - self.y) % curve.p
-        
+
         return WeierstrassPoint(curve, new_x, new_y)
 
-    def __sub__(self, obj):
-        assert isinstance(self, WeierstrassPoint) and isinstance(obj, WeierstrassPoint), \
-                'Can only subtract Point with another Point.'
-        return self + (-obj)
+    def _double(self):
+        curve = self.curve
+        m = ((3 * self.x * self.x + curve.a) * invmod(2 * self.y, curve.p)) % curve.p
+        new_x = (m * m - self.x - self.x) % curve.p
+        new_y = (m * (self.x - new_x) - self.y) % curve.p
 
-    def __mul__(self, scalar):
-        assert isinstance(self, WeierstrassPoint) and isinstance(scalar, int), \
-                'Can only multiply Point with a scalar.'
-        scalar %= self.curve.q
-        pow2 = self
-        acc = self.curve.id
-        while True:
-            if scalar & 1:
-                acc += pow2
-            scalar >>= 1
-            if scalar == 0: return acc
-            pow2 += pow2
-    
-    def __rmul__(self, scalar):
-       return self * scalar
+        return WeierstrassPoint(curve, new_x, new_y)

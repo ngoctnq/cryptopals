@@ -121,7 +121,7 @@ assert pow(g, res, p) == y
 print(res) # 359579674340
 ```
 
-Chú ý để $k$ cao lên để kangaroo nhảy được xa hơn. Với $k=16$, ước tính loop sau mất tầm 30' trường hợp xấu nhất; với $k=20$, 3 phút (thực tế mất 2'), và với $k=25$, 1' (nhưng loop đầu đã mất 2 phút).
+Chú ý để $k$ cao lên để kangaroo nhảy được xa hơn. Với $k=16$, ước tính loop sau mất tầm 30' trường hợp xấu nhất; với $k=20$, 3 phút (thực tế mất 2'), và với $k=25$, 1' (nhưng loop đầu đã mất 2 phút). Cụ thể, do với $k$ lớn, bước nhảy xa hơn, và do số bước trước đặt trap $N$ là trung bình của độ dài các bước nhảy, loop đầu sẽ lâu hơn với $k$ lớn hơn. Tuy nhiên, vì bước nhảy dài hơn, nên thỏ con sẽ nhảy qua từ lower bound đến upper bound rất nhanh để mau chóng rơi vào trap chúng ta đã đặt. Vì vậy, nếu bound cho exponent lớn, hãy đặt $k$ cao lên, vì độ dài loop 2 sẽ bé đi rất rất rất nhiều so với lượng thời gian tăng lên để chạy loop 1; và giảm $k$ trong trường hợp ngược lại.
 
 Ở phần 2, chúng ta copy i xì code của bài trước. Trong đó, các ước bé hơn $2^{16}$ của $j$ là:
 ```python
@@ -427,8 +427,6 @@ assert recovered == priv_a
 
 # [Challenge 60: Single-Coordinate Ladders and Insecure Twists](https://toadstyle.org/cryptopals/60.txt)
 
-Mình đã vào EFD để tìm công thức nhưng lại phải ra tay trắng vì không hiểu họ viết gì cả...
-
 Viết code (hay chính xác là sửa pseudocode trong đề) tính scale theo ladder:
 ```python
 def ladder(u: int, k: int, a: int, p: int) -> int:
@@ -511,9 +509,297 @@ def get_mac(pubkey: int) -> bytes:
     )
 ```
 
+Tạo ECC keys cho Bob:
+```python
+secret = randrange(1, curve.q)
+public = _ladder(4, secret, curve.a, curve.p)
+```
+
+Tương tự như challenge trên, chúng ta viết code sinh ra một điểm sao cho có một order $q$ cụ thể: nhớ rằng, nếu Jacobi symbol là $-1$, điều đó nghĩa là giá trị đó không phải là một số chính phương, và điểm đó không tồn tại trên curve mà nằm trên twist.
+```python
+def generate_point(a, p, q, r):
+    # generate new point of order r with custom group order q
+    for u in range(1, p):
+        v2 = (u * u * u + a * u * u + u) % p
+        # make sure it's on the twist
+        y = jacobi_symbol(v2, p)
+        assert y != 0
+        if y == 1:
+            continue
+        # craft the point to override the error check
+        point = _ladder(u, q // r, a, p)
+        if point == 0: continue
+        assert _ladder(point, r, a, p) == 0
+        return point
+```
+
+Tìm ra order của twist và tìm các ước của chúng:
+```python
+q_ = 2 * curve.p + 2 - curve.order
+factors = [11, 107, 197, 1621, 105143, 405373, 2323367]#, 1571528514013]
+```
+
+Chúng ta bỏ nghiệm cuối do nó quá lớn và sẽ mất 110 ngày (!) chỉ để tìm số dư khi chia cho nó. Giờ là code để tìm các số dư đó, có hỗ trợ thanh progress bar và xử lý đa luồng (vì code này mà để đơn luồng lâu kinh khủng):
+
+```python
+retval = Value('i', -1)
+def find_remainders(u, ranger, mac):
+    global retval
+    for remainder in ranger:
+        with retval.get_lock():
+            if retval.value != -1:
+                break
+        mac_ = get_mac(_ladder(u, remainder, curve.a, curve.p))
+        if mac == mac_:
+            with retval.get_lock():
+                retval.value = remainder
+            break
+
+def load_divider(u, f, mac):
+    count = cpu_count()
+    pool = Pool(count)
+    retval.value = -1
+    params = []
+    step = f // count + int((f % count) > 0)
+    bottom = 0
+    for _ in range(count):
+        params.append(range(bottom, min(bottom + step, f)))
+        bottom += step
+
+    pool.starmap(find_remainders, zip(repeat(u), params, repeat(mac)))
+    return sorted([retval.value, f - retval.value])
+```
+
+Và tìm lấy số dư cuối cùng:
+```python
+print('Getting individual factors...')
+for f in tqdm(factors):
+    u = generate_point(curve.a, curve.p, q_, f)
+    mac = get_mac(_ladder(u, secret, curve.a, curve.p))
+    remainders.append(load_divider(u, f, mac))
+    
+print('Getting union factors...')
+while len(factors) > 1:
+    new_factors = []
+    new_remainders = []
+    len_factors = len(factors)
+    midpoint = len_factors // 2 + len_factors % 2
+    for idx1 in range(midpoint):
+        idx2 = len_factors - idx1 - 1
+        if idx1 == idx2:
+            new_factors.append(factors[idx1])
+            new_remainders.append(remainders[idx2])
+            continue
+        f1 = factors[idx1]
+        f2 = factors[idx2]
+        f3 = f1 * f2
+        u3 = generate_point(curve.a, curve.p, q_, f3)
+        mac = get_mac(_ladder(u3, secret, curve.a, curve.p))
+        r3s = []
+        for r1 in remainders[idx1]:
+            for r2 in remainders[idx2]:
+                r3, _ = chinese_remainder([f1, f2], [r1, r2])
+                mac_ = get_mac(_ladder(u3, r3, curve.a, curve.p))
+                if mac == mac_:
+                    r3s.append(r3)
+        new_factors.append(f3)
+        new_remainders.append(r3s)
+    
+    factors = []
+    remainders = []
+    for f, r in sorted(zip(new_factors, new_remainders)):
+        factors.append(f)
+        remainders.append(r)
+
+factor = factors[0]
+remainders = remainders[0]
+```
+
+Trong đề bài có nhắc tới việc sẽ có 2 giá trị dư có thể xảy ra cho mỗi modulus, và lượng số dư có thể cho factor cuối sẽ là $2^7=128$. Con số này rất lớn, vì (*spoiler alert*) code chạy phần đằng sau mất tầm 6 tiếng cho mỗi khả năng trên. Vì vậy, chúng ta có thể sinh ra tất cả các khả năng trước, rồi sinh ra MAC như với mỗi ước riêng kia, để check xem số dư đó có thoả mãn không. Kết quả cuối cùng là bạn sẽ rút ra chỉ có 2 số dư tiềm năng thôi.
+
+Do Pollard's Kangaroo yêu cầu phải có cả phép cộng và nhân, sử dụng mỗi Montgomery ladder không thôi sẽ không thành. Vì thế, có 2 việc chúng ta phải làm: 1 là tạo ra các candidate cho public key để xử lý:
+```python
+y = sqrtmod((public ** 3 + curve.a * public ** 2 + public) % curve.p, curve.p)
+public = curve.point(public, y)
+```
+
+Khả năng thứ 2 của public key chính là `-public`, với giá trị toạ độ $y$ bị đổi dấu. Việc thứ 2 phải làm là implement thêm hàm cộng/nhân bình thường:
+```python
+def _add(self, obj):
+    curve, x1, y1, x2, y2 = self.curve, self.x, self.y, obj.x, obj.y
+    a, b, p = curve.a, curve.b, curve.p
+    x3 = b * pow(y2 - y1, 2, p) * pow(x2 - x1, p - 1 - 2, p) - a - x1 - x2
+    y3 = (2 * x1 + x2 + a) * (y2 - y1) * invmod_prime(x2 - x1, p) - b * pow(y2 - y1, 3, p) * pow(x2 - x1, p - 1 - 3, p) - y1
+    return MontgomeryPoint(curve, x3 % p, y3 % p)
+
+def _double(self):
+    curve, x, y = self.curve, self.x, self.y
+    a, b, p = curve.a, curve.b, curve.p
+    x3 = b * pow(3 * x * x + 2 * a * x + 1, 2, p) * pow(2 * b * y, p - 1 - 2, p) - a - x - x
+    y3 = (2 * x + x + a) * (3 * x * x + 2 * a * x + 1) * invmod_prime(2 * b * y, p) - b * pow(3 * x * x + 2 * a * x + 1, 3, p) * pow(2 * b * y, p - 1 - 3, p) - y
+    return MontgomeryPoint(curve, x3 % p, y3 % p)
+```
+
+Cấu trúc của class `MontgomeryPoint` tương tự với lớp `WeierstrassPoint` ở bài trước; nếu có thắc mắc gì bạn có thể đọc code cụ thể tại [repo](https://github.com/ngoctnq/cryptopals) mình.
+
+Sửa hàm Pollard's Kangaroo cho Elliptic Curve:
+```python
+def pollard(y, min_exp, max_exp, g, k=24, progress=True):
+    # generate params from k
+    f = lambda y: 2 ** (y.x % k)
+    '''
+    avg of f is (2 ^ k - 1) / k
+    multiplied by 4 -> (2 ^ (k+2) - 4) / k
+    '''
+    N = (2 ** (k + 2)) // k
+
+    assert y.curve == g.curve
+
+    # get the endpoint
+    xT = 0
+    yT = g * max_exp
+    if progress:
+        ranger = trange(N)
+    else:
+        ranger = range(N)
+    for _ in ranger:
+        fT = f(yT)
+        xT += fT
+        yT += g * fT
+
+    # then search if we met
+    xW = 0
+    yW = y
+    if progress:
+        pbar = tqdm(total=max_exp - min_exp + xT)
+    while xW < max_exp - min_exp + xT:
+        fW = f(yW)
+        xW += fW
+        yW += g * fW
+
+        if progress:
+            pbar.update(fW)
+
+        if yW == yT:
+            return max_exp + xT - xW
+```
+
+Và vì code này chạy rõ lâu, mà có nhiều khả năng phải thử ($4 = 2$ số dư $\times 2$ public keys), nên chúng ta lại chạy song song:
+```python
+# y = g^x = g^(r + qf) = g^r + (g^f)^q
+def pollard_helper(public, r, progress=True):
+    y = public - curve.g * r
+    max_ = curve.q // factor
+    q = pollard(y, 0, max_, y.curve.g * factor, 23, progress)
+    if q is None: return
+    ret = (q * factor + r) % curve.q
+    return ret
+
+# parallel compute all 4 instances
+pool = Pool(cpu_count())
+results = pool.starmap(pollard_helper,
+    ((public, remainders[0], True),
+    (-public, remainders[0], False),
+    (public, remainders[1], False),
+    (-public, remainders[1], False))
+```
+
+Và sau 6 tiếng chạy code chúng ta sẽ có kết quả:
+```python
+assert secret in results
+for result in results:
+    assert result is None or result == secret
+```
+
 **Ngoài lề:** Có một điều khá thú vị mà mình phát hiện ra: sau khi scale quá order của group thì các lý thuyết bay qua cửa sổ: khi scale với bội số của origin sẽ không về được origin nữa. Chắc là tại khi gặp origin 1 lần thì nó toang, vì origin là một điểm nằm ở vô cực, và $x/w$ chỉ là một ước lượng. Ngoài ra cũng tại điểm 0 và điểm origin đều cùng giá trị 0. Vấn đề này là một phần nhỏ của việc chỉ sử dụng toạ độ $x$, là mỗi giá trị của $x$ tương ứng với 2 điểm trên curve. Điều này cũng làm cho việc hàm fast multiplication (nhân đôi rồi cộng gộp) sẽ bị toang, do không biết được chính xác hiệu của 2 điểm đó; và chúng ta cần hiệu vì curve này không có công thức closed form cho cộng điểm, mà phải sử dụng differential addition.
 
 # [Challenge 61: Duplicate-Signature Key Selection in ECDSA (and RSA)](https://toadstyle.org/cryptopals/61.txt)
+
+Đầu tiên chúng ta implement lại hàm ký và verify cho ECDSA:
+```python
+def sign(message, private_key, curve, hash_fn=sha256):
+    q = curve.q
+
+    # get the leftmost bits equal to the group order
+    hashed = int.from_bytes(hash_fn(message).digest(), 'big')
+    hashed >>= max(hashed.bit_length() - q.bit_length(), 0)
+
+    # generate nonce key
+    while True:
+        private, public = curve.generate_keypair()
+        k, r = private, public.x
+        if r % q == 0: continue
+        s = ((hashed + private_key * r) * invmod_prime(k, q)) % q
+        if s != 0: break
+        
+    return r, s
+
+def verify(message, signature, public_key, hash_fn=sha256):
+    r, s = signature
+    q = public_key.curve.q
+
+    # get the leftmost bits equal to the group order
+    hashed = int.from_bytes(hash_fn(message).digest(), 'big')
+    hashed >>= max(hashed.bit_length() - q.bit_length(), 0)
+    
+    s_inv = invmod_prime(s, q)
+    u1 = (hashed * s_inv) % q
+    u2 = (r * s_inv) % q
+    R = u1 * public_key.curve.g + u2 * public_key
+    return r == R.x
+```
+
+Tạo chữ ký cho một random key:
+```python
+curve = WeierstrassCurve(
+    a = -95051,
+    b = 11279326,
+    p = 233970423115425145524320034830162017933,
+    g = (182, 85518893674295321206118380980485522083),
+    q = 29246302889428143187362802287225875743,
+    order = (29246302889428143187362802287225875743 << 3)
+)
+private, public = curve.generate_keypair()
+
+message = b"leavin' is the hardest thing to do"
+signature = sign(message, private, curve)
+assert verify(message, signature, public)
+```
+
+Và tạo ra một đôi key mới có thể mạo danh chữ ký trên:
+```python
+# from the verify code
+r, s = signature
+q = curve.q
+hashed = int.from_bytes(sha256(message).digest(), 'big')
+hashed >>= max(hashed.bit_length() - q.bit_length(), 0)
+s_inv = invmod_prime(s, q)
+u1 = (hashed * s_inv) % q
+u2 = (r * s_inv) % q
+# craft public key
+d_ = randrange(1, q)
+t = (u1 + u2 * d_) % q
+R = u1 * curve.g + u2 * public
+g_ = invmod(t, q) * R
+Q_ = d_ * g_
+Q_.curve = WeierstrassCurve(
+    a = -95051,
+    b = 11279326,
+    p = 233970423115425145524320034830162017933,
+    g = (g_.x, g_.y),
+    q = 29246302889428143187362802287225875743,
+    order = (29246302889428143187362802287225875743 << 3)
+)
+assert verify(message, signature, Q_)
+```
+
+Thực ra tán công này khá đơn giản nếu bạn để ý một chút: chúng ta chọn generator và public key mới sao cho $R$ cũ và mới giống nhau:
+
+$$
+R' = (u_1 + u_2d') * G' = (u_1 + u_2d') * (u_1 + u_2d')^{-1} * R = R.
+$$
+
+Điều quan trọng cần nhớ ở đây là với các thông tin có được từ chủ nhân chính thống, chúng ta có được key trộn cần mạo danh, và tìm một đôi $(d',G')$ để cho giá trị đó không đổi không quá khó. Đặc biệt là với order của generator là nguyên tố, tất cả các giá trị mà generator đó sinh ra đều sẽ có cùng order (trừ identity).
 
 # [Challenge 62: Key-Recovery Attacks on ECDSA with Biased Nonces](https://toadstyle.org/cryptopals/62.txt)
 

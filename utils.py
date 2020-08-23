@@ -2,12 +2,13 @@ from binascii import unhexlify, hexlify
 from base64 import b64encode, b64decode
 from itertools import cycle, product
 from string import printable
-from math import log
+from math import log, ceil
 from typing import Iterable
 from Crypto.Cipher import AES
 from random import randint
 from typing import Optional, Callable
 from tqdm import tqdm, trange
+import re, requests
 
 #########
 # SET 1 #
@@ -371,3 +372,96 @@ def sqrtmod(n: int, p: int) -> int:
         c = pow(b, 2, p)
         t = (t * c) % p
         r = (r * b) % p
+
+def ceil_root(i: int, rootexp: int) -> int:
+    ''' ceiling of root using geometric search '''
+    step_size = 1
+    greed = True
+    root = 1
+    while True:
+        ok = root ** rootexp - i > 0
+        if ok:
+            if step_size == 1:
+                return root
+            else:
+                step_size //= 2
+                root -= step_size
+                greed = False
+        else:
+            root += step_size
+            if greed:
+                step_size *= 2
+
+def bsgs(y, g, n, p):
+    '''
+    Baby step - Giant step aka Shank's algorithm to find discrete log
+    Params:
+        @y  point to find the discrete log
+        @g  generator of the Abelian group
+        @n  order of the group/generator
+        @p  the GF(p) we're working with
+    '''
+    m = ceil_root(n, 2)
+    hashtable = dict()
+    for j in range(m):
+        hashtable[pow(g, j, p)] = j
+    
+    invm = pow(g, p - 1 - m, p)
+    gamma = y
+    for i in range(m):
+        if gamma in hashtable:
+            return i * m + hashtable[gamma]
+        y = (y * invm) % p
+
+
+def pohlig_hellman(y: int, g: int, p: int, order: dict, parallel=False):
+    if len(order) == 1:
+        x = 0
+        for p, e in order.items(): pass
+        order = p ** e
+        gamma = pow(g, p ** (e - 1), p)
+        for k in range(e):
+            h = pow(y * pow(g, order - x, p), e - 1 - k, p)
+            d = bsgs(h, gamma, order, p)
+            x = (x + d * pow(p, k, order)) % order
+    else:
+        params = []
+        order = 1
+        for p, e in order.items():
+            order *= p ** e
+        factors = []
+        for p, e in order.items():
+            factor = p ** e
+            power = order // factor
+            factors.append(factor)
+            gi = pow(g, power, p)
+            yi = pow(y, power, p)
+            params.append([yi, gi, p, {p: e}])
+        if parallel:
+            from multiprocessing import Pool, cpu_count
+            remainders = Pool(cpu_count()).starmap(pohlig_hellman, params)
+        else:
+            from itertools import starmap
+            remainders = starmap(pohlig_hellman, params)
+        remainders = list(remainders)
+        return chinese_remainder(factors, remainders)[0]
+    
+
+'''
+def factorize_factordb(p: int) -> dict:
+    result = requests.get(f'http://factordb.com/index.php?query={p}').text
+    status = re.search(r'\WFF\W', result)
+    print(result)
+    # if not found
+    if status is None: return None
+    ret = {}
+    pattern = r'<a href="index.php\?id=\d+"><font color="#000000">((?:\d[\d.]+)?\d)(?:\^(\d+))?<\/font><\/a>'
+    for match in re.finditer(pattern, result):
+        xp, mult = match.groups()
+        print(xp, mult)
+        if '.' in xp: return None
+        ret[int(xp)] = int(mult or 1)
+    return ret
+
+# print(factorize_factordb(1231241242110259458797201845670243391072241213131236761817460))
+'''
