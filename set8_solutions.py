@@ -6,6 +6,7 @@ from utils import sqrtmod, jacobi_symbol, invmod, invmod_prime, factorize_factor
 from weierstrass import WeierstrassCurve, WeierstrassPoint
 from montgomery import _ladder as ladder
 from pprint import pprint
+from threading import Thread
 
 def chall57():
     p = 7199773997391911030609999317773941274322764333428698921736339643928346453700085358802973900485592910475480089726140708102474957429903531369589969318716771
@@ -280,11 +281,19 @@ def chall61():
     n, e, d = generate_key(prime_bitlength=64)
     enc = pow(msg, e, n)
 
-    for _ in range(10):
+    def try_prime(cap=2**32):
         p = getPrime(128)
-        print(p)
-        print(factorize_factordb(p-1))
-    # while True:
-    #     ...
+        factors = factorize_factordb(p-1)
+        if factors is not None and max(factors.keys()) < cap:
+            print(p)
+            print(factors)
+            
+    threads = []
+    for _ in trange(100000):
+        t = Thread(target=try_prime)
+        t.start()
+        threads.append(t)
+    for t in tqdm(threads):
+        t.join()
 
 chall61()

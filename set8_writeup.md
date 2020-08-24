@@ -715,6 +715,8 @@ for result in results:
 
 # [Challenge 61: Duplicate-Signature Key Selection in ECDSA (and RSA)](https://toadstyle.org/cryptopals/61.txt)
 
+### Phần 1: ECDSA
+
 Đầu tiên chúng ta implement lại hàm ký và verify cho ECDSA:
 ```python
 def sign(message, private_key, curve, hash_fn=sha256):
@@ -800,6 +802,17 @@ R' = (u_1 + u_2d') * G' = (u_1 + u_2d') * (u_1 + u_2d')^{-1} * R = R.
 $$
 
 Điều quan trọng cần nhớ ở đây là với các thông tin có được từ chủ nhân chính thống, chúng ta có được key trộn cần mạo danh, và tìm một đôi $(d',G')$ để cho giá trị đó không đổi không quá khó. Đặc biệt là với order của generator là nguyên tố, tất cả các giá trị mà generator đó sinh ra đều sẽ có cùng order (trừ identity).
+
+### Phần 2: RSA (DSA + forged plaintext)
+
+238727251533741716722400942888398144591
+{2: 1, 3: 5, 5: 1, 3659: 1, 5119: 1, 6709: 1, 1495633: 1, 252293677: 1, 2071853237: 1}
+333608929053242853170317622636449152139
+{2: 1, 3: 1, 11: 1, 1373167: 1, 1640207: 1, 7028431: 1, 112211117: 1, 2845623511: 1}
+268334761709516764273654696771078405403
+{2: 1, 1109: 1, 102750629: 1, 342655031: 1, 1577600767: 1, 2178094333: 1}
+243252225961672840334482281305736742759
+{2: 1, 3: 3, 23: 1, 29: 1, 97093697: 1, 103165889: 1, 569538457: 1, 1183823651: 1}
 
 # [Challenge 62: Key-Recovery Attacks on ECDSA with Biased Nonces](https://toadstyle.org/cryptopals/62.txt)
 

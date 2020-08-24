@@ -426,13 +426,13 @@ def pohlig_hellman(y: int, g: int, p: int, order: dict, parallel=False):
             x = (x + d * pow(p, k, order)) % order
     else:
         params = []
-        order = 1
+        order_ = 1
         for p, e in order.items():
-            order *= p ** e
+            order_ *= p ** e
         factors = []
         for p, e in order.items():
             factor = p ** e
-            power = order // factor
+            power = order_ // factor
             factors.append(factor)
             gi = pow(g, power, p)
             yi = pow(y, power, p)
@@ -447,21 +447,17 @@ def pohlig_hellman(y: int, g: int, p: int, order: dict, parallel=False):
         return chinese_remainder(factors, remainders)[0]
     
 
-'''
 def factorize_factordb(p: int) -> dict:
     result = requests.get(f'http://factordb.com/index.php?query={p}').text
     status = re.search(r'\WFF\W', result)
-    print(result)
     # if not found
     if status is None: return None
     ret = {}
-    pattern = r'<a href="index.php\?id=\d+"><font color="#000000">((?:\d[\d.]+)?\d)(?:\^(\d+))?<\/font><\/a>'
+    pattern = r'<a href="index.php\?id=\d+"><font color="#\d\d0000">(\d(?:[\d.]+)?)(?:\^(\d+))?<\/font><\/a>'
     for match in re.finditer(pattern, result):
         xp, mult = match.groups()
-        print(xp, mult)
         if '.' in xp: return None
         ret[int(xp)] = int(mult or 1)
     return ret
 
 # print(factorize_factordb(1231241242110259458797201845670243391072241213131236761817460))
-'''
