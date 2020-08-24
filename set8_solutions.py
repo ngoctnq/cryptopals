@@ -1,8 +1,8 @@
 from random import randrange
 from hmac import digest
-from rsa import int_to_bytes, chinese_remainder, generate_key, pkcs15_pad, getPrime
+from rsa import int_to_bytes, chinese_remainder, generate_key, pkcs15_pad, getPrime, RSA_encrypt
 from tqdm import trange, tqdm
-from utils import sqrtmod, jacobi_symbol, invmod, invmod_prime, factorize_factordb
+from utils import sqrtmod, jacobi_symbol, invmod, invmod_prime, factorize_factordb, is_primitive_root, pohlig_hellman
 from weierstrass import WeierstrassCurve, WeierstrassPoint
 from montgomery import _ladder as ladder
 from pprint import pprint
@@ -276,24 +276,58 @@ def chall61():
     # assert verify(message, signature, Q_)
 
     # reverse RSA-based DSA
-    message = b"but being left is harder yes it's true"
-    msg = int.from_bytes(pkcs15_pad(message, 64), 'big')
-    n, e, d = generate_key(prime_bitlength=64)
-    enc = pow(msg, e, n)
+    message = b"ButBeingLeftIsHarderYesItsTru"
+    msg = int.from_bytes(pkcs15_pad(message, 256 // 8), 'big')
+    n, _, d = generate_key(prime_bitlength=128)
+    enc = RSA_encrypt(msg, n, d)
 
-    def try_prime(cap=2**32):
-        p = getPrime(128)
-        factors = factorize_factordb(p-1)
-        if factors is not None and max(factors.keys()) < cap:
-            print(p)
-            print(factors)
+    # def try_prime(cap=2**32):
+    #     p = getPrime(128)
+    #     factors = factorize_factordb(p-1)
+    #     if factors is not None and max(factors.keys()) < cap:
+    #         print(p)
+    #         print(factors)
             
-    threads = []
-    for _ in trange(100000):
-        t = Thread(target=try_prime)
-        t.start()
-        threads.append(t)
-    for t in tqdm(threads):
-        t.join()
+    # threads = []
+    # for _ in trange(100000):
+    #     t = Thread(target=try_prime)
+    #     t.start()
+    #     threads.append(t)
+    # for t in tqdm(threads):
+    #     t.join()
 
-chall61()
+    p1 = 238727251533741716722400942888398144591
+    f1 = {2: 1, 3: 5, 5: 1, 3659: 1, 5119: 1, 6709: 1, 1495633: 1, 252293677: 1, 2071853237: 1}
+    p2 = 333608929053242853170317622636449152139
+    f2 = {2: 1, 3: 1, 11: 1, 1373167: 1, 1640207: 1, 7028431: 1, 112211117: 1, 2845623511: 1}
+    p3 = 243252225961672840334482281305736742759
+    f3 = {2: 1, 3: 3, 23: 1, 29: 1, 97093697: 1, 103165889: 1, 569538457: 1, 1183823651: 1}
+    
+    p = 268334761709516764273654696771078405403
+    p_ = {2: 1, 1109: 1, 102750629: 1, 342655031: 1, 1577600767: 1, 2178094333: 1}
+    if not is_primitive_root(enc, p, p_) or not is_primitive_root(msg, p, p_):
+        # exit("Message/Signature is not a primitive root, please try again.")
+        raise RuntimeError
+
+    if p * p1 > n and is_primitive_root(enc, p1, f1) and is_primitive_root(msg, p1, f1):
+        q, q_ = p1, f1
+    elif p * p2 > n and is_primitive_root(enc, p2, f2) and is_primitive_root(msg, p2, f2):
+        q, q_ = p2, f2
+    elif p * p3 > n and is_primitive_root(enc, p3, f3) and is_primitive_root(msg, p3, f3):
+        q, q_ = p3, f3
+    else:
+        # the primes are not good enough, try again
+        # exit("Message/Signature is not a primitive root, please try again.")
+        raise RuntimeError
+
+    ep = pohlig_hellman(msg, enc, p, p_, True)
+    eq = pohlig_hellman(msg, enc, q, q_, True)
+
+    e = chinese_remainder([(p - 1) // 2, q - 1], [ep % ((p - 1) // 2), eq])[0]
+    new_msg = RSA_encrypt(enc, p * q, e)
+    assert msg == new_msg
+
+def chall62():
+    ...
+
+chall62()

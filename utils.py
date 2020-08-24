@@ -9,6 +9,7 @@ from random import randint
 from typing import Optional, Callable
 from tqdm import tqdm, trange
 import re, requests
+from itertools import product
 
 #########
 # SET 1 #
@@ -406,37 +407,38 @@ def bsgs(y, g, n, p):
     for j in range(m):
         hashtable[pow(g, j, p)] = j
     
-    invm = pow(g, p - 1 - m, p)
+    invm = pow(g, (-m) % (p - 1), p)
     gamma = y
     for i in range(m):
         if gamma in hashtable:
             return i * m + hashtable[gamma]
-        y = (y * invm) % p
+        gamma = (gamma * invm) % p
 
 
 def pohlig_hellman(y: int, g: int, p: int, order: dict, parallel=False):
     if len(order) == 1:
         x = 0
-        for p, e in order.items(): pass
-        order = p ** e
-        gamma = pow(g, p ** (e - 1), p)
+        for p_, e in order.items(): pass
+        order = p_ ** e
+        gamma = pow(g, p_ ** (e - 1), p)
         for k in range(e):
-            h = pow(y * pow(g, order - x, p), e - 1 - k, p)
-            d = bsgs(h, gamma, order, p)
-            x = (x + d * pow(p, k, order)) % order
+            h = pow(y * pow(g, order - x, p), pow(p_, e - 1 - k), p)
+            d = bsgs(h, gamma, p_, p)
+            x = (x + d * pow(p_, k)) % order
+        return x
     else:
         params = []
         order_ = 1
-        for p, e in order.items():
-            order_ *= p ** e
+        for p_, e in order.items():
+            order_ *= p_ ** e
         factors = []
-        for p, e in order.items():
-            factor = p ** e
+        for p_, e in order.items():
+            factor = p_ ** e
             power = order_ // factor
             factors.append(factor)
             gi = pow(g, power, p)
             yi = pow(y, power, p)
-            params.append([yi, gi, p, {p: e}])
+            params.append([yi, gi, p, {p_: e}])
         if parallel:
             from multiprocessing import Pool, cpu_count
             remainders = Pool(cpu_count()).starmap(pohlig_hellman, params)
@@ -445,7 +447,7 @@ def pohlig_hellman(y: int, g: int, p: int, order: dict, parallel=False):
             remainders = starmap(pohlig_hellman, params)
         remainders = list(remainders)
         return chinese_remainder(factors, remainders)[0]
-    
+
 
 def factorize_factordb(p: int) -> dict:
     result = requests.get(f'http://factordb.com/index.php?query={p}').text
@@ -460,4 +462,21 @@ def factorize_factordb(p: int) -> dict:
         ret[int(xp)] = int(mult or 1)
     return ret
 
-# print(factorize_factordb(1231241242110259458797201845670243391072241213131236761817460))
+def get_all_factors(prime_factors: dict) -> list:
+    factors = []
+    primes = list(prime_factors.keys())
+    iterators = [range(prime_factors[k] + 1) for k in primes]
+    for exponents in product(*iterators):
+        factor = 1
+        for p, e in zip(primes, exponents):
+            factor *= p ** e
+        factors.append(factor)
+    factors.sort()
+    return factors
+
+def is_primitive_root(g: int, p: int, order: dict) -> bool:
+    # ignore 1 and itself
+    for factor in get_all_factors(order)[1:-1]:
+        if pow(g, factor, p) == 1:
+            return False
+    return True

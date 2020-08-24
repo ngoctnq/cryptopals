@@ -805,14 +805,176 @@ $$
 
 ### Phần 2: RSA (DSA + forged plaintext)
 
-238727251533741716722400942888398144591
-{2: 1, 3: 5, 5: 1, 3659: 1, 5119: 1, 6709: 1, 1495633: 1, 252293677: 1, 2071853237: 1}
-333608929053242853170317622636449152139
-{2: 1, 3: 1, 11: 1, 1373167: 1, 1640207: 1, 7028431: 1, 112211117: 1, 2845623511: 1}
-268334761709516764273654696771078405403
-{2: 1, 1109: 1, 102750629: 1, 342655031: 1, 1577600767: 1, 2178094333: 1}
-243252225961672840334482281305736742759
-{2: 1, 3: 3, 23: 1, 29: 1, 97093697: 1, 103165889: 1, 569538457: 1, 1183823651: 1}
+Việc đầu tiên cần làm là tạo ra các smooth order $\mathbb{Z}_P$; ở đây mình giới hạn số nguyên tố chỉ 128 bit thôi cho dễ crack.
+```python
+def try_prime(cap=2**32):
+    p = getPrime(128)
+    factors = factorize_factordb(p-1)
+    if factors is not None and max(factors.keys()) < cap:
+        print(p)
+        print(factors)
+        
+threads = []
+for _ in trange(100000):
+    t = Thread(target=try_prime)
+    t.start()
+    threads.append(t)
+for t in tqdm(threads):
+    t.join()
+```
+
+Trong đó, hàm `factorize_factordb` lấy các ước từ trang [factordb.com](factordb.com). Trong đó, các ước dài quá không hiện lên sẽ được skip, vì đằng nào nó cũng dài quá; nhưng sau này nếu cần bạn nên query link đó để lấy số cụ thể.
+```python
+def factorize_factordb(p: int) -> dict:
+    result = requests.get(f'http://factordb.com/index.php?query={p}').text
+    # only get fully factored
+    status = re.search(r'\WFF\W', result)
+    # if not found
+    if status is None: return None
+    ret = {}
+    pattern = r'<a href="index.php\?id=\d+"><font color="#\d\d0000">(\d(?:[\d.]+)?)(?:\^(\d+))?<\/font><\/a>'
+    for match in re.finditer(pattern, result):
+        xp, mult = match.groups()
+        if '.' in xp: return None
+        ret[int(xp)] = int(mult or 1)
+    return ret
+```
+
+Đây là vài giá trị mình có được:
+```python
+p1 = 238727251533741716722400942888398144591
+f1 = {2: 1, 3: 5, 5: 1, 3659: 1, 5119: 1, 6709: 1, 1495633: 1, 252293677: 1, 2071853237: 1}
+p2 = 333608929053242853170317622636449152139
+f2 = {2: 1, 3: 1, 11: 1, 1373167: 1, 1640207: 1, 7028431: 1, 112211117: 1, 2845623511: 1}
+p3 = 243252225961672840334482281305736742759
+f3 = {2: 1, 3: 3, 23: 1, 29: 1, 97093697: 1, 103165889: 1, 569538457: 1, 1183823651: 1}
+
+p = 268334761709516764273654696771078405403
+p_ = {2: 1, 1109: 1, 102750629: 1, 342655031: 1, 1577600767: 1, 2178094333: 1}
+```
+
+Giờ chúng ta sinh ra tin nhắn và RSA MAC để crack:
+```python
+# reverse RSA-based DSA
+message = b"ButBeingLeftIsHarderYesItsTru"
+msg = int.from_bytes(pkcs15_pad(message, 256 // 8), 'big')
+n, _, d = generate_key(prime_bitlength=128)
+enc = RSA_encrypt(msg, n, d)
+```
+
+Như đề bài đã nói, plaintext (`msg`) và signature (`enc`) nên là primitive root của cả $p$ lẫn $q$. Ngoài ra, $pq>n$ để message/signature của chúng ta không bị wrap lại trong trường hợp xấu nhất. Chúng ta thử để chọn ra $q$, và nếu không tồn tại thì throw `RuntimeError` vì sẽ không giải được với các lựa chọn số nguyên tố này:
+```python
+if not is_primitive_root(enc, p, p_) or not is_primitive_root(msg, p, p_):
+    # exit("Message/Signature is not a primitive root, please try again.")
+    raise RuntimeError
+
+if p * p1 > n and is_primitive_root(enc, p1, f1) and is_primitive_root(msg, p1, f1):
+    q, q_ = p1, f1
+elif p * p2 > n and is_primitive_root(enc, p2, f2) and is_primitive_root(msg, p2, f2):
+    q, q_ = p2, f2
+elif p * p3 > n and is_primitive_root(enc, p3, f3) and is_primitive_root(msg, p3, f3):
+    q, q_ = p3, f3
+else:
+    # the primes are not good enough, try again
+    # exit("Message/Signature is not a primitive root, please try again.")
+    raise RuntimeError
+```
+
+Trong đó hàm `is_primitive_root` làm giống như trong hướng dẫn: check xem với tất cả các ước số có thể (ngoài 1 và chính nó) thì generator candidate đó có bị loop về 1 không:
+```python
+def get_all_factors(prime_factors: dict) -> list:
+    factors = []
+    primes = list(prime_factors.keys())
+    iterators = [range(prime_factors[k] + 1) for k in primes]
+    for exponents in product(*iterators):
+        factor = 1
+        for p, e in zip(primes, exponents):
+            factor *= p ** e
+        factors.append(factor)
+    factors.sort()
+    return factors
+
+def is_primitive_root(g: int, p: int, order: dict) -> bool:
+    # ignore 1 and itself
+    for factor in get_all_factors(order)[1:-1]:
+        if pow(g, factor, p) == 1:
+            return False
+    return True
+```
+
+Ngoài ra, chúng ta cần thuật toán Pohlig-Hellman để tính discrete log với smooth-order groups: code này có hỗ trợ tính song song để tăng tốc độ.
+```python
+def pohlig_hellman(y: int, g: int, p: int, order: dict, parallel=False):
+    if len(order) == 1:
+        x = 0
+        for p_, e in order.items(): pass
+        order = p_ ** e
+        gamma = pow(g, p_ ** (e - 1), p)
+        for k in range(e):
+            h = pow(y * pow(g, order - x, p), pow(p_, e - 1 - k), p)
+            d = bsgs(h, gamma, p_, p)
+            x = (x + d * pow(p_, k)) % order
+        return x
+    else:
+        params = []
+        order_ = 1
+        for p_, e in order.items():
+            order_ *= p_ ** e
+        factors = []
+        for p_, e in order.items():
+            factor = p_ ** e
+            power = order_ // factor
+            factors.append(factor)
+            gi = pow(g, power, p)
+            yi = pow(y, power, p)
+            params.append([yi, gi, p, {p_: e}])
+        if parallel:
+            from multiprocessing import Pool, cpu_count
+            remainders = Pool(cpu_count()).starmap(pohlig_hellman, params)
+        else:
+            from itertools import starmap
+            remainders = starmap(pohlig_hellman, params)
+        remainders = list(remainders)
+        return chinese_remainder(factors, remainders)[0]
+```
+
+Và hàm đó cần sử dụng một hàm tính discrete log cơ bản chung chung. Ở đây mình sử dụng Shank's algo, hay còn gọi là [baby-step giant-step](https://en.wikipedia.org/wiki/Baby-step_giant-step):
+```python
+def bsgs(y, g, n, p):
+    '''
+    Baby step - Giant step aka Shank's algorithm to find discrete log
+    Params:
+        @y  point to find the discrete log
+        @g  generator of the Abelian group
+        @n  order of the group/generator
+        @p  the GF(p) we're working with
+    '''
+    m = ceil_root(n, 2)
+    hashtable = dict()
+    for j in range(m):
+        hashtable[pow(g, j, p)] = j
+    
+    invm = pow(g, (-m) % (p - 1), p)
+    gamma = y
+    for i in range(m):
+        if gamma in hashtable:
+            return i * m + hashtable[gamma]
+        gamma = (gamma * invm) % p
+```
+
+Viết nốt code sinh ra bộ $(e', p, q)$:
+```python
+ep = pohlig_hellman(msg, enc, p, p_, True)
+eq = pohlig_hellman(msg, enc, q, q_, True)
+
+e = chinese_remainder([(p - 1) // 2, q - 1], [ep % ((p - 1) // 2), eq])[0]
+new_msg = RSA_encrypt(enc, p * q, e)
+assert msg == new_msg
+```
+
+Và phần còn lại là chạy: trong trường hợp $(p,q)$ không phù hợp, chúng ta chạy lại bài này để được secret private key khác :D
+
+Câu cuối về việc decrypt RSA ra một plaintext bất kỳ chỉ đơn giản là chúng ta chọn $s$ là plaintext cần decrypt ra, thay public exponent $e$ bằng private key $d$, và giải $s^d=m \mod N$ tương tự.
 
 # [Challenge 62: Key-Recovery Attacks on ECDSA with Biased Nonces](https://toadstyle.org/cryptopals/62.txt)
 
