@@ -9,7 +9,7 @@ from rsa import (
 )
 from binascii import hexlify, unhexlify
 import re, requests
-from dsa import privkey_from_nonce, sign, verify, g, p, q
+from dsa import privkey_from_subkey, sign, verify, g, p, q
 from sha1 import sha1
 from utils import trange, b64decode
 from io import BytesIO
@@ -86,7 +86,7 @@ def chall43():
     r = 548099063082341131477253921760299949438196259240
     s = 857042759984254168557880549501802188789837994940
     for k in trange(1, 2 ** 16 + 1):
-        privkey = privkey_from_nonce(msg, (r, s), k)
+        privkey = privkey_from_subkey(msg, (r, s), k)
         if pubkey == pow(g, privkey, p): break
     # check hash integrity
     assert sha1(hex(privkey)[2:].encode()) == '0954edd5e0afe5542a4adf012611a91912a3ec16'
@@ -125,7 +125,7 @@ def chall44():
     s1, s2 = ss[pos1], ss[pos2]
     k = ((m1 - m2) % q * invmod((s1 - s2) % q, q)) % q
     # get the private key
-    privkey = privkey_from_nonce(msgs[pos1], (r, s1), k)
+    privkey = privkey_from_subkey(msgs[pos1], (r, s1), k)
     assert pubkey == pow(g, privkey, p)
     assert sha1(hex(privkey)[2:].encode()) == 'ca8f6f7c66fa362d40760d135b763eb8527d3d52'
     

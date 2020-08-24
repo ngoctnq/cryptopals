@@ -131,16 +131,16 @@ assert verify(text, signature, pubkey)
 
 Hàm khôi phục private key từ nonce khá dễ code:
 ```python
-def privkey_from_nonce(msg: bytes, signature: (int, int), nonce: int) -> int:
+def privkey_from_subkey(msg: bytes, signature: (int, int), subkey: int) -> int:
     r, s = signature
     hashed = int.from_bytes(unhexlify(sha1(msg)), 'big')
-    return ((s * nonce - hashed) * invmod(r, q)) % q
+    return ((s * subkey - hashed) * invmod(r, q)) % q
 ```
 
 Như đã hướng dẫn ở trên, với search space bé (65537 trường hợp), chúng ta có thể bruteforce ra private key một cách dễ dàng.
 ```python
 for k in trange(1, 2 ** 16 + 1):
-    privkey = privkey_from_nonce(msg, (r, s), k)
+    privkey = privkey_from_subkey(msg, (r, s), k)
     if pubkey == pow(g, privkey, p): break
 # check hash integrity
 assert sha1(hex(privkey)[2:].encode()) == '0954edd5e0afe5542a4adf012611a91912a3ec16'
@@ -203,7 +203,7 @@ m1, m2 = ms[pos1], ms[pos2]
 s1, s2 = ss[pos1], ss[pos2]
 k = ((m1 - m2) % q * invmod((s1 - s2) % q, q)) % q
 # get the private key
-privkey = privkey_from_nonce(msgs[pos1], (r, s1), k)
+privkey = privkey_from_subkey(msgs[pos1], (r, s1), k)
 assert pubkey == pow(g, privkey, p)
 assert sha1(hex(privkey)[2:].encode()) == 'ca8f6f7c66fa362d40760d135b763eb8527d3d52'
 ```

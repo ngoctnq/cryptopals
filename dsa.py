@@ -34,14 +34,14 @@ def verify(msg: bytes, signature: (int, int), pubkey: int) -> bool:
     v = ((pow(g, u1, p) * pow(pubkey, u2, p)) % p) % q
     return v == r
 
-def privkey_from_nonce(msg: bytes, signature: (int, int), nonce: int) -> int:
+def privkey_from_subkey(msg: bytes, signature: (int, int), subkey: int) -> int:
     r, s = signature
     hashed = int.from_bytes(unhexlify(sha1(msg)), 'big')
-    return ((s * nonce - hashed) * invmod(r, q)) % q
+    return ((s * subkey - hashed) * invmod(r, q)) % q
 
 if __name__ == '__main__':
     pubkey, privkey = generate_keys()
     text = b'ngoctnq'
     signature = sign(text, privkey)
     assert verify(text, signature, pubkey)
-    # assert privkey_from_nonce(text, signature, nonce) == privkey
+    # assert privkey_from_subkey(text, signature, subkey) == privkey
