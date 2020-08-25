@@ -55,15 +55,20 @@ def LLL(basis, delta=0.99):
 
     while k < n:
         for j in reversed(range(k)):
-            if abs(mu(k, j)) > 1 / 2:
-                basis[k] = dot(sub(basis[k], round(mu(k, j))), basis[j])
-                ortho = gram_schmidt(basis)
+            mu_ij = mu(k, j)
+            if abs(mu_ij) > 1 / 2:
+                basis[k] = sub(basis[k], scale(basis[j], round(mu_ij)))
+                # ortho = gram_schmidt(basis)
 
         if l2_sqr(ortho[k]) >= (delta - mu(k, k - 1) ** 2) * l2_sqr(ortho[k-1]):
             k = k + 1
         else:
             basis[k], basis[k - 1] = basis[k - 1], basis[k]
-            ortho = gram_schmidt(basis)
+            # since only two vectors swapped
+            old_k1 = ortho[k - 1]
+            ortho[k - 1] = add(ortho[k], project(basis[k - 1], old_k1))
+            ortho[k] = sub(old_k1, project(old_k1, ortho[k - 1]))
+            # ortho = gram_schmidt(basis) # <-- old code
             k = max(k - 1, 1)
 
     return basis

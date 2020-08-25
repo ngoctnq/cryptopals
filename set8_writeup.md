@@ -1,8 +1,10 @@
 <sup>Đây là một bài trong series [Cùng giải Cryptopals!](https://viblo.asia/s/cung-giai-cryptopals-68Z00nw9ZkG).<br>Các bạn nên tự làm hoặc vừa đọc vừa làm thay vì đọc lời giải trực tiếp.</sup>
 ***
-**<div align="center">Set này hiện tại không được publish trên trang chủ,<br>
+<div align="center">Set này hiện tại không được publish trên trang chủ,<br>
 và email thì cũng đến mùa quýt mới được trả lời,<br>
-nên mình đã Google đề để làm  (｡・ ω<)ゞ</div>**
+    nên mình đã Google đề để làm  (｡・ ω<)ゞ</div>
+    
+**<div align="center">Cẩn thận nhé, phần này rất rất dài, và khó hơn các phần trước nhiều.</div>**
 ***
 
 # [Challenge 57: Diffie-Hellman Revisited: Small Subgroup Confinement](https://toadstyle.org/cryptopals/57.txt)
@@ -977,6 +979,174 @@ Và phần còn lại là chạy: trong trường hợp $(p,q)$ không phù hợ
 Câu cuối về việc decrypt RSA ra một plaintext bất kỳ chỉ đơn giản là chúng ta chọn $s$ là plaintext cần decrypt ra, thay public exponent $e$ bằng private key $d$, và giải $s^d=m \mod N$ tương tự.
 
 # [Challenge 62: Key-Recovery Attacks on ECDSA with Biased Nonces](https://toadstyle.org/cryptopals/62.txt)
+
+Do chúng ta sẽ phải làm việc với vector của các phân số, chúng ta sẽ code qua các hàm tính toán trên vector phân số:
+```python
+Vector = List[Fraction]
+
+def add(v1: Vector, v2: Vector) -> Vector:
+    assert len(v1) == len(v2), "Cannot add vectors of different dimensions!"
+    return [x1 + x2 for (x1, x2) in zip(v1, v2)]
+
+def sub(v1: Vector, v2: Vector) -> Vector:
+    assert len(v1) == len(v2), "Cannot subtract vectors of different dimensions!"
+    return [x1 - x2 for (x1, x2) in zip(v1, v2)]
+
+def dot(v1: Vector, v2: Vector) -> Fraction:
+    assert len(v1) == len(v2), "Cannot dot product vectors of different dimensions!"
+    return sum([x1 * x2 for (x1, x2) in zip(v1, v2)])
+
+def l2_sqr(v: Vector) -> Fraction:
+    return dot(v, v)
+
+def scale(v: Vector, s: Fraction) -> Vector:
+    return [x * s for x in v]
+
+def project(v1: Vector, v2: Vector) -> Vector:
+    '''
+    Project v1 upon v2.
+    '''
+    assert len(v1) == len(v2), "Cannot project vectors of different dimensions!"
+    l22v2 = l2_sqr(v2)
+    if l22v2 == 0: return [Fraction(0)] * len(v1)
+    return scale(v2, dot(v1, v2) / l22v2)
+
+def gram_schmidt(basis: List[Vector]) -> List[Vector]:
+    new_basis = []
+    for i, vec in enumerate(basis):
+        for k in range(i):
+            vec = sub(vec, project(vec, new_basis[k]))
+        new_basis.append(vec)
+    return new_basis
+```
+
+Đọc [pseudocode của LLL trên Wikipedia](https://en.wikipedia.org/wiki/Lenstra%E2%80%93Lenstra%E2%80%93Lov%C3%A1sz_lattice_basis_reduction_algorithm#LLL_algorithm_pseudocode), chúng ta implement hàm LLL:
+```python
+def LLL(basis, delta=0.99):
+    '''
+    Lenstra-Lenstra-Lovasz to reduce a basis
+    '''
+    basis = basis[:]
+    ortho = gram_schmidt(basis)
+
+    def mu(i, j):
+        v = basis[i]
+        u = ortho[j]
+        return dot(u, v) / dot(u, u)
+
+    n = len(basis)
+    k = 1
+
+    while k < n:
+        for j in reversed(range(k)):
+            mu_ij = mu(k, j)
+            if abs(mu_ij) > 1 / 2:
+                basis[k] = sub(basis[k], scale(basis[j], round(mu_ij)))
+                # ortho = gram_schmidt(basis)
+
+        if l2_sqr(ortho[k]) >= (delta - mu(k, k - 1) ** 2) * l2_sqr(ortho[k-1]):
+            k = k + 1
+        else:
+            basis[k], basis[k - 1] = basis[k - 1], basis[k]
+            # since only two vectors swapped
+            old_k1 = ortho[k - 1]
+            ortho[k - 1] = add(ortho[k], project(basis[k - 1], old_k1))
+            ortho[k] = sub(old_k1, project(old_k1, ortho[k - 1]))
+            # ortho = gram_schmidt(basis) # <-- old code
+            k = max(k - 1, 1)
+
+    return basis
+```
+
+Trong đó, chúng ta phải optimize sao cho không phải chạy Gram-Schmidt mỗi iteration (vì thuật toán đó chạy rất lâu, $2n^3$ ops. Trong đó, có 2 chỗ đã sửa:
+- Chỗ đầu tiên chúng ta xóa luôn code gọi Gram-Schmidt, vì đang trừ thành phần của $v_j$ khỏi $v_k$, với $v_j$ đã xuất hiện trước. Từ đó, basis thứ $k$ có thể chắc chắn đã không còn component nào của $v_j$, nên basis không đổi.
+- Chỗ thứ chúng ta swap $v_{k-1}$ và $v_k$: vậy chúng ta chỉ cần sửa basis ở 2 vector đó thôi.
+    - $v_k$ được chuyển lên trên, đồng nghĩa với việc chúng ta cần recover lại component của $v_{k-1}$ đã lọc từ lần Gram-Schmidt trước: project và cộng. Để ý là index của basis cần project phải là $k-1$ chứ không phải $k$, do chúng ta đã swap từ trước.
+    - $v_{k-1}$ bị chuyển xuống dưới, nên chúng ta chỉ phải trừ đi component mới mà chúng ta vừa làm ở gạch đầu dòng trên: project rồi trừ.
+
+Sửa mấy cái đó cần biết về đại số tuyến tính, nên đừng tưởng bài này dễ nhai không cần kiến thức như họ đã quảng cáo. Nhưng mà tin vui là xong hết mấy phần khó rồi, giờ là thủ tục thôi: đầu tiên là định nghĩa curve:
+```python
+curve = WeierstrassCurve(
+        a = -95051,
+        b = 11279326,
+        p = 233970423115425145524320034830162017933,
+        g = (182, 85518893674295321206118380980485522083),
+        q = 29246302889428143187362802287225875743,
+        order = (29246302889428143187362802287225875743 << 3)
+    )
+```
+
+Và hàm ký sao cho 8 bit cuối của secret key bị zero out:
+```python
+def broken_sign(message, private_key, curve, hash_fn=sha256):
+    q = curve.q
+
+    # get the leftmost bits equal to the group order
+    hashed = int.from_bytes(hash_fn(message).digest(), 'big')
+    hashed >>= max(hashed.bit_length() - q.bit_length(), 0)
+
+    # generate nonce key
+    while True:
+        private = randrange(1, curve.q)
+        # zero out the last byte
+        private ^= (private & 0xFF)
+        public = curve.g * private
+        k, r = private, public.x
+        if r % q == 0: continue
+        s = ((hashed + private_key * r) * invmod_prime(k, q)) % q
+        if s != 0: break
+        
+    return hashed, r, s
+```
+
+Tạo key,
+```python
+# generate keys
+secret, public = curve.generate_keypair()
+```
+
+Và ký vài (33) dòng lyrics:
+```python
+# sign like 33 messages for keepsake
+text = "<chorus, bridge, và verse 2 của No Church In The Wild>"
+text = text.replace('\n\n', '\n').split('\n')
+print(len(text)) # 33
+bases = []
+for i in range(len(text)):
+    bases.append([Fraction()] * i + [Fraction(curve.q)] + [Fraction()] * (len(text) - i + 1))
+us = []
+ts = []
+for msg in text:
+    msg = msg.encode()
+    # H(m), r, s
+    h, r, s = broken_sign(msg, secret, curve)
+    # since we know q is prime
+    s_inv = invmod_prime(s << 8, curve.q)
+    t = (r * s_inv) % curve.q
+    u = (-h * s_inv) % curve.q
+    us.append(Fraction(u))
+    ts.append(Fraction(t))
+ts.append(Fraction(1, 256))
+ts.append(Fraction())
+us.append(Fraction())
+us.append(Fraction(curve.q, 256))
+bases.append(ts)
+bases.append(us)
+```
+
+Chạy hàm LLL, mình mất 8 phút. Nếu không optimize thì mỗi iteration bị chậm đi phải tầm nghìn lần, nên đừng thử.
+```python
+bases = LLL(bases)
+```
+
+Và lấy lại secret key:
+```python
+recovered = []
+for vector in bases:
+    if vector[-1] == Fraction(curve.q, 256):
+        recovered.append(int(vector[-2] * -256) % curve.q)
+assert secret in recovered
+```
 
 # [Challenge 63: Key-Recovery Attacks on GCM with Repeated Nonces](https://toadstyle.org/cryptopals/63.txt)
 
