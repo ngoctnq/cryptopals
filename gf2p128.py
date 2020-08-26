@@ -1,7 +1,13 @@
 class GF2p128:
-    def __init__(self, val, m):
+    def __init__(self, val, m=0x100000000000000000000000000000087):
         self.val = val
         self.m = m
+    
+    def __str__(self):
+        return str(self.val)
+    
+    def __repr__(self):
+        return repr(self.val)
 
     def deg(self):
         x = self.val
@@ -49,7 +55,4 @@ class GF2p128:
         return self * obj ** -1
 
     def inv(self):
-        ...
-
-from utils import egcd
-print(egcd(GF2p128(100, 30), GF2p128(100, 30)))
+        return pow(self, 2 ** 128 - 2)

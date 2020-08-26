@@ -1,8 +1,24 @@
 from random import randrange, seed
 from hmac import digest
-from rsa import int_to_bytes, chinese_remainder, generate_key, pkcs15_pad, getPrime, RSA_encrypt
+from rsa import (
+    int_to_bytes,
+    chinese_remainder,
+    generate_key,
+    pkcs15_pad,
+    getPrime,
+    RSA_encrypt
+)
 from tqdm import trange, tqdm
-from utils import sqrtmod, jacobi_symbol, invmod, invmod_prime, factorize_factordb, is_primitive_root, pohlig_hellman
+from utils import (
+    sqrtmod,
+    jacobi_symbol,
+    invmod,
+    invmod_prime,
+    factorize_factordb,
+    is_primitive_root,
+    pohlig_hellman,
+    AES_encrypt
+)
 from weierstrass import WeierstrassCurve, WeierstrassPoint
 from montgomery import _ladder as ladder
 from pprint import pprint
@@ -10,6 +26,7 @@ from threading import Thread
 from hashlib import sha256
 from fractions import Fraction
 from linalg import LLL
+from gf2p128 import GF2p128
 
 def chall57():
     p = 7199773997391911030609999317773941274322764333428698921736339643928346453700085358802973900485592910475480089726140708102474957429903531369589969318716771
@@ -363,7 +380,7 @@ def chall62():
     # generate keys
     secret, public = curve.generate_keypair()
     # sign like 33 messages for keepsake
-    text = """[Chorus: Frank Ocean]\nHuman beings in a mob\nWhat's a mob to a king? What's a king to a god?\nWhat's a god to a non-believer who don't believe in anything?\nWill he make it out alive? Alright, alright, no church in the wild\n\n[Bridge: The-Dream]\nI live by you, desire\nI stand by you, walk through the fire\nYour love is my scripture\nLet me in through your encryption\nYeah, yeah\n\n[Verse 2: Kanye West]\nCoke on her black skin made it stripe like a zebra\nI call that jungle fever\nYou will not control the threesome\nJust roll the weed up until I get me some\nWe formed a new religion\nNo sins as long as there’s permission\nAnd deception is the only felony\nSo never fuck nobody without telling me\nSunglasses and Advil\nLast night was mad real\nSun coming up, 5 a.m\nI wonder if they got cabs still\nThinking 'bout the girl in all leopard\nWho was rubbing the wood like Kiki Shepard\nTwo tattoos: one read "No Apologies"\nThe other said "Love is Cursed by Monogamy"\nIt’s something that the pastor don’t preach\nIt’s something that a teacher can’t teach\nWhen we die, the money we can’t keep\nBut we probably spend it all 'cause the pain ain’t cheap\nPreach"""
+    text = """[Chorus: Frank Ocean]\nHuman beings in a mob\nWhat's a mob to a king? What's a king to a god?\nWhat's a god to a non-believer who don't believe in anything?\nWill he make it out alive? Alright, alright, no church in the wild\n\n[Bridge: The-Dream]\nI live by you, desire\nI stand by you, walk through the fire\nYour love is my scripture\nLet me in through your encryption\nYeah, yeah\n\n[Verse 2: Kanye West]\nCoke on her black skin made it stripe like a zebra\nI call that jungle fever\nYou will not control the threesome\nJust roll the weed up until I get me some\nWe formed a new religion\nNo sins as long as there's permission\nAnd deception is the only felony\nSo never fuck nobody without telling me\nSunglasses and Advil\nLast night was mad real\nSun coming up, 5 a.m\nI wonder if they got cabs still\nThinking 'bout the girl in all leopard\nWho was rubbing the wood like Kiki Shepard\nTwo tattoos: one read "No Apologies"\nThe other said "Love is Cursed by Monogamy"\nIt’s something that the pastor don’t preach\nIt’s something that a teacher can’t teach\nWhen we die, the money we can’t keep\nBut we probably spend it all 'cause the pain ain’t cheap\nPreach"""
     text = text.replace('\n\n', '\n').split('\n')
     # print(len(text)) # 34
     bases = []
@@ -396,6 +413,8 @@ def chall62():
     assert secret in recovered
 
 def chall63():
-    ...
+    key = b'choppaAim@UrFace'
+    authkey = AES_encrypt(key, b'\x00' * 16)
+    authkey = int.from_bytes(authkey, 'big')
 
 chall63()
