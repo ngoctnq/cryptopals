@@ -17,7 +17,6 @@ from utils import (
     factorize_factordb,
     is_primitive_root,
     pohlig_hellman,
-    AES_encrypt
 )
 from weierstrass import WeierstrassCurve, WeierstrassPoint
 from montgomery import _ladder as ladder
@@ -26,7 +25,7 @@ from threading import Thread
 from hashlib import sha256
 from fractions import Fraction
 from linalg import LLL
-from gf2p128 import GF2p128
+from gmac import gmac, GF2p128
 
 def chall57():
     p = 7199773997391911030609999317773941274322764333428698921736339643928346453700085358802973900485592910475480089726140708102474957429903531369589969318716771
@@ -412,9 +411,7 @@ def chall62():
             recovered.append(int(vector[-2] * -256) % curve.q)
     assert secret in recovered
 
-def chall63():
+def chall63():    
     key = b'choppaAim@UrFace'
-    authkey = AES_encrypt(key, b'\x00' * 16)
-    authkey = int.from_bytes(authkey, 'big')
 
 chall63()

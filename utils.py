@@ -284,17 +284,14 @@ def egcd(m: int, n: int) -> (int, (int, int)):
     assert m > 0 and n > 0, "Parameters to `egcd` must be positive."
     m_coeff = (1, 0)
     n_coeff = (0, 1)
-    if m < n:
-        m, n = n, m
-        m_coeff, n_coeff = n_coeff, m_coeff
 
     while True:
-        r, q = divmod(m, n)
-        if q == 0:
+        q, r = divmod(m, n)
+        if r == 0:
             return n, n_coeff
-        m, n = n, q
+        m, n = n, r
         # q = m - n * r
-        m_coeff, n_coeff = n_coeff, tuple(map(lambda x: x[0] - r * x[1], zip(m_coeff, n_coeff)))
+        m_coeff, n_coeff = n_coeff, tuple(map(lambda x: x[0] - q * x[1], zip(m_coeff, n_coeff)))
 
 def invmod(n: int, p: int) -> int:
     '''Returns the modular inverse under Zp.'''
