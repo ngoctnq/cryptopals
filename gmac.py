@@ -1,6 +1,6 @@
 from utils import AES_encrypt, generate_key
 from struct import pack
-
+from random import randrange
 
 def _deg(x):
     assert x >= 0
@@ -10,12 +10,15 @@ class GF2p128:
     def __init__(self, val, m=0x100000000000000000000000000000087):
         self.val = val
         self.m = m
+
+    def __hash__(self):
+        return hash((self.val, self.m))
     
     def __str__(self):
-        return str(self.val)
+        return "GF2^128(" + str(self.val) + ')'
     
     def __repr__(self):
-        return repr(self.val)
+        return bin(self.val)[2:]
 
     def __add__(self, obj):
         assert self.m == obj.m, "Cannot add/sub numbers of different polynomial generators!"
@@ -24,6 +27,8 @@ class GF2p128:
     __sub__ = __add__
 
     def __mul__(self, obj):
+        if type(obj) is int:
+            return self if obj % 2 else GF2p128(0, self.m)
         assert self.m == obj.m, "Cannot multiply numbers of different polynomial generators!"
         a, b, m = self.val, obj.val, self.m
         p = 0
@@ -119,51 +124,127 @@ def gmac(key, msg, nonce):
 
 
 class Polynomial:
-    def __init__(self, coeff=None, num_class=GF2p128):
+    # coeffs are larger-order-first
+    # order (p, e) is the p^e prime power order of the coeff field
+    def __init__(self, coeff=None, num_class=None, order=None):
         if coeff is None:
+            assert num_class is not None, "Cannot infer number type!"
             self.coeff = [num_class(0)]
         else:
             self.coeff = coeff[:]
-        self.num_class = num_class
+        if num_class is None:
+            self.num_class = type(coeff[0])
+            assert len(self.coeff) > 0, "Cannot infer number type!"
+        else:
+            self.num_class = num_class
+        
+        if type(order) is int:
+            self.order = (order, 1)
+        elif order is None:
+            if self.num_class is GF3:
+                self.order = (3, 1)
+            elif self.num_class is GF2p128:
+                self.order = (2, 128)
+            else:
+                self.order = None
+        else:
+            self.order = order
+
+        # inplace
+        self._reduce()
+
+    def __str__(self):
+        return self.num_class.__name__ + ' polynomial: ' + (' + '.join(
+            reversed([f'{v if (v.val != 1 or i == 0) else ""}{("x" + ("^" + str(i) if i > 1 else "")) if i > 0 else ""}' \
+                for (i, v) in enumerate(reversed(self.coeff)) if v.val > 0])
+        ) if self.deg() > 0 else str(self.coeff[0]))
+    __repr__ = __str__
 
     def __eq__(self, obj):
-        return len(self.coeff) == len(obj.coeff) and all([x == y for (x, y) in zip(self.coeff, obj.coeff)])
+        return len(self.coeff) == len(obj.coeff) and \
+            all([x == y for (x, y) in zip(self.coeff, obj.coeff)])
 
-    def copy(self):
-        return Polynomial(self.coeff, self.num_class)
+    def copy(self, coeffs=None):
+        return Polynomial(self.coeff if coeffs is None else coeffs,
+                          self.num_class, self.order)
+
+    def __hash__(self):
+        return hash((tuple(self.coeff), self.num_class, self.order))
 
     def deg(self):
         return len(self.coeff) - 1
     
     def __call__(self, val):
         ret = 0
-        for coeff in reversed(self.coeff):
+        for coeff in self.coeff:
             ret *= val
             ret += coeff
         return ret
 
+    def _reduce(self):
+        # remove leading zeros
+        for i in range(len(self.coeff)):
+            if self.coeff[i] != self.num_class(0):
+                break
+        del self.coeff[:i]
+        return self
+
     def __add__(self, obj):
         assert type(self) == type(obj), "Can only add Polynomials with Polynomials!"
-        return Polynomial([x + y for (x, y) in zip(self.coeff, obj.coeff)], self.num_class)
+        longer, shorter = (self.copy(), obj) \
+                          if self.deg() == max(self.deg(), obj.deg()) \
+                          else (obj.copy(), self)
+        diff = longer.deg() - shorter.deg()
+        for i in range(shorter.deg() + 1):
+            longer.coeff[diff + i] += shorter.coeff[i]
+        return longer._reduce()
 
     def __sub__(self, obj):
         assert type(self) == type(obj), "Can only subtract Polynomials with Polynomials!"
-        return Polynomial([x - y for (x, y) in zip(self.coeff, obj.coeff)], self.num_class)
+        retval = self.copy()
+        maxdeg = max(self.deg(), obj.deg())
+        # pads result
+        retval.coeff = [self.num_class(0)] * (maxdeg - self.deg()) + retval.coeff
+        diff = maxdeg - obj.deg()
+        for i in range(obj.deg() + 1):
+            retval.coeff[diff + i] -= obj.coeff[i]
+        return retval._reduce()
 
     def __mul__(self, obj):
         if type(obj) is self.num_class:
-            return Polynomial([x * obj for x in self.coeff])
+            return Polynomial([x * obj for x in self.coeff], order=self.order)
         assert type(self) is type(obj), "Can only multiply Polynomials with Polynomials!"
         total_deg = self.deg() + obj.deg()
         coeffs = [self.num_class()] * (total_deg + 1)
         for idx1, val1 in enumerate(self.coeff):
             for idx2, val2 in enumerate(obj.coeff):
-                coeffs[total_deg - idx1 - idx2 + 1] += val1 * val2
-        return Polynomial(coeffs, self.num_class)
+                coeffs[idx1 + idx2] += val1 * val2
+        return Polynomial(coeffs, self.num_class, self.order)
+
+    def __pow__(self, power, mod=None):
+        ret = self.copy()
+        ret.coeff = [ret.num_class(1)]
+        acc = self.copy()
+        while power > 0:
+            if power & 1:
+                ret *= acc
+                if mod is not None:
+                    ret %= mod
+            power >>= 1
+            acc *= acc
+            if acc is not None:
+                acc %= mod
+        return ret
 
     def __truediv__(self, obj):
         if type(obj) is self.num_class:
-            return Polynomial([x / obj for x in self.coeff])
+            return self.copy([x / obj for x in self.coeff])
+        quotient, remainder = divmod(self, obj)
+        assert remainder == self.copy([self.num_class(0)]), 'Remainder not 0 in truediv!'
+        return quotient
+
+    def __floordiv__(self, obj):
+        assert type(obj) is type(self)
         return divmod(self, obj)[0]
 
     def __mod__(self, obj):
@@ -171,16 +252,21 @@ class Polynomial:
 
     def __divmod__(self, obj):
         assert type(self) is type(obj), "Can only divide Polynomials with Polynomials!"
-        
-        divider = self.copy()
-        coeffs = []
-        while divider.deg() >= obj.deg():
-            coeff = self.coeff[0] / obj.coeff[0]
-            divided = obj.copy()
-            divider -= (divided << (divider.deg() - obj.deg())) * coeff
-            coeffs.append(coeff)
+        if self.deg() < obj.deg():
+            return self.copy([self.num_class(0)]), self
 
-        return Polynomial(coeffs, self.num_class), divider
+        divider = self.copy()
+        divided = obj << (divider.deg() - obj.deg())
+        coeffs = []
+        while divided.deg() >= obj.deg() and divided != self.copy([self.num_class(0)]):
+            if divider.deg() < divided.deg():
+                coeff = self.num_class(0)
+            else:
+                coeff = divider.coeff[0] / divided.coeff[0]
+            divider -= divided * coeff
+            divided >>= 1
+            coeffs.append(coeff)
+        return Polynomial(coeffs, self.num_class, self.order), divider
 
     def __lshift__(self, shift):
         retval = self.copy()
@@ -189,65 +275,166 @@ class Polynomial:
 
     def __rshift__(self, shift):
         if shift > self.deg():
-            return Polynomial()
+            return Polynomial(num_class=self.num_class, order=self.order)
         if shift == 0:
             return self
-        return Polynomial(self.coeff[:-shift], self.num_class)
+        return Polynomial(self.coeff[:-shift], self.num_class, self.order)
 
     def monic(self):
         lead_coeff = self.coeff[0]
-        return Polynomial([x / lead_coeff for x in self.coeff], self.num_class)
+        return Polynomial([x / lead_coeff for x in self.coeff], self.num_class, self.order), lead_coeff
 
     def egcd(self, obj):
         # returns GCD, (coeff 1, coeff 2)
         m, n = self, obj
-        m_coeff = (self.num_class(1), self.num_class(0))
-        n_coeff = (self.num_class(0), self.num_class(1))
+        m_coeff = (Polynomial([self.num_class(1)], order=self.order),
+                   Polynomial([self.num_class(0)], order=self.order))
+        n_coeff = (Polynomial([self.num_class(0)], order=self.order),
+                   Polynomial([self.num_class(1)], order=self.order))
 
         while True:
+            # print('m', m)
+            # print('n', n)
             q, r = divmod(m, n)
-            if r == 0:
-                return n, n_coeff
+            # print('q', q)
+            # print('r', r)
+            assert r.deg() < n.deg() or r.deg() < 1
+            assert q * n + r == m
+            if r == Polynomial(num_class=self.num_class, order=self.order):
+                n, coeff = n.monic()
+                return n, (n_coeff[0] * coeff, n_coeff[1] * coeff)
             m, n = n, r
             # q = m - n * r
             m_coeff, n_coeff = n_coeff, tuple(map(lambda x: x[0] - q * x[1], zip(m_coeff, n_coeff)))
 
     def derivative(self):
         retval = self.copy()
-        for i in range(1, self.deg() + 1):
-            retval.coeff[-i-1] *= self.num_class(i)
+        for i in range(self.deg()):
+            retval.coeff[i] *= (self.deg() - i)
         return retval >> 1
 
     def sqr_free_factor(self):
-        return f / f.egcd(f.derivative())[0]
+        one = self.copy([self.num_class(1)])
+        c = self.egcd(self.derivative())[0]
+        w = self / c
+        i = 1
+        r = dict()
+        # get all factors in w
+        while w != one:
+            y = w.egcd(c)[0]
+            fac = w / y
+            if fac != one:
+                if fac in r:
+                    r[fac] += i
+                else:
+                    r[fac] = i
+            w = y
+            c = c / y
+            i += 1
+        # get the rest from f
+        if c != one:
+            c = c.characteristic_root()
+            for k, v in c.sqr_free_factor().items():
+                if k in r:
+                    r[k] += v * self.order[0]
+                else:
+                    r[k] = v * self.order[0]
+        return r
+
+    def characteristic_root(self):
+        # https://math.stackexchange.com/a/1579112/402767
+        p, e = self.order
+        retval = self.copy()
+        retval.coeff = []
+        for i in range(self.deg() + 1):
+            if i % p: assert self.coeff[i] == self.num_class(0)
+            else:
+                retval.coeff.append(self.coeff[i] ** (p ** (e - 1)))
+        return retval
 
     def diff_deg_factor(self):
-        ...
+        i = 0
+        s = set()
+        f = self
+        one = self.copy([self.num_class(1)])
+        p, e = self.order
+        acc = one
+        while f.deg() >= 2 * i:
+            g = f.egcd(acc - (one << 1))[0]
+            if g != one:
+                s.add((g, i))
+                f /= g
+            i += 1
+
+            # recalculate
+            acc = pow(acc, p ** e, f)
+
+        if f != one:
+            s.add((f, f.deg()))
+        if len(s) == 0:
+            return {(f, 1)}
+        return s
+
+    def random_polynomial(self):
+        retval = self.copy()
+        if retval.num_class is GF2p128:
+            mod = retval.coeff[0].m
+            for i in range(retval.deg() + 1):
+                retval.coeff[i] = GF2p128(randrange(0, 2 ** 128), mod)
+        else:
+            raise NotImplementedError
+        retval._reduce()
+        return retval
 
     def eq_deg_factor(self, degree):
         # Cantor-Zassenhaus algorithm for equal-degree factorization.
         f, d = self, degree
-        n = f.deg()
-        r = n // d
-        S = {f}
+        p, e = self.order
+        r = f.deg // d
+        factors = {f}
+        one = self.copy([self.num_class(1)])
 
-        while len(S) < r:
-            h = random_polynomial(1, f)
-            g = gcd(h, f)
+        while len(factors) < r:
+            h = f.random_polynomial()
+            g = h.egcd(f)[0]
 
-            if g == 1:
-                g = (h ** ((q ** d - 1) / 3) - 1) % f
+            if g == one:
+                g = (h ** ((p ** (e * d) - 1) // 3) - one) % f
 
-            for u in S:
-                if u.deg() == d:
-                    continue
-                
-                gcd_gu = gcd(g, u)
-                if gcd_gu != 1 and gcd_gu != u:
-                    S = (S - {u}) | ({gcd_gu, u / gcd_gu})
+            for u in factors:
+                if u.deg() > d:
+                    gcd_gu = g.egcd(u)[0]
+                    if gcd_gu != one and gcd_gu != u:
+                        factors = (factors - {u}) | {gcd_gu, u / gcd_gu}
 
-        return S
+        return factors
 
-    
-p = Polynomial([1,0,2,2,0,1,1,0,2,2,0,1], int)
-print(p.egcd(p.derivative()))
+
+# test class
+class GF3:
+    def __init__(self, val=0):
+        self.val = val
+    def __add__(self, obj):
+        return GF3((self.val + obj.val) % 3)
+    def __hash__(self):
+        return hash(self.val)
+    def __sub__(self, obj):
+        return GF3((self.val - obj.val) % 3)
+    def __mul__(self, obj):
+        return GF3((self.val * (obj if type(obj) is int else obj.val)) % 3)
+    def __truediv__(self, obj):
+        return self * obj ** -1
+    def __pow__(self, exp):
+        if exp < 0:
+            assert self.val > 0, "Cannot invert 0!"
+        return GF3(pow(self.val, abs(exp), 3))
+    def __str__(self):
+        return str(self.val)
+    __repr__ = __str__
+    def __eq__(self, obj):
+        return self.val == obj.val
+
+p = Polynomial([GF3(x) for x in [1,0,2,2,0,1,1,0,2,2,0,1]], order=(3, 1))
+factors = p.sqr_free_factor()
+for factor in factors:
+    print(factor, factor.diff_deg_factor())
