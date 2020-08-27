@@ -427,7 +427,7 @@ def chall63():
     msg3 = b'toroimerai'
     gmac3 = gcm_mac(msg3)
 
-    key_ = GF2p128(int.from_bytes(AES_encrypt(key, b'\x00' * 16), 'big'))
+    authkey = int.from_bytes(AES_encrypt(key, b'\x00' * 16), 'big')
 
     def get_private_candidates(msg1, gmac1, msg2, gmac2):
         # build the blocks
@@ -449,7 +449,7 @@ def chall63():
     candidates = candidates1 & candidates2 & candidates3
     assert len(candidates) == 1
     for recovered in candidates: break
-    assert recovered == key_.val
+    assert recovered == authkey
     print('OK!')
 
 chall63()
