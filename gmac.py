@@ -245,7 +245,7 @@ class Polynomial:
                     ret %= mod
             power >>= 1
             acc *= acc
-            if acc is not None:
+            if mod is not None:
                 acc %= mod
         return ret
 
@@ -372,21 +372,23 @@ class Polynomial:
         return retval
 
     def diff_deg_factor(self):
-        i = 0
+        i = 1
         s = set()
         f = self
         one = self.copy([self.num_class(1)])
         p, e = self.order
-        acc = one
+        q = p ** e
+        x = (one << 1)
+        acc = pow(x, q, f)
         while f.deg() >= 2 * i:
-            g = f.egcd(acc - (one << 1))[0]
+            g = f.egcd(acc - x)[0]
             if g != one:
                 s.add((g, i))
                 f /= g
             i += 1
 
             # recalculate
-            acc = pow(acc, p ** e, f)
+            acc = pow(acc, q, f)
 
         if f != one:
             s.add((f, f.deg()))
@@ -418,7 +420,7 @@ class Polynomial:
             g = h.egcd(f)[0]
 
             if g == one:
-                g = (h ** ((p ** (e * d) - 1) // 3) - one) % f
+                g = (pow(h, (p ** (e * d) - 1) // 3, f) - one) % f
 
             for u in factors:
                 if u.deg() > d:

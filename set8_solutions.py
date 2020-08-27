@@ -427,16 +427,7 @@ def chall63():
     msg3 = b'toroimerai'
     gmac3 = gcm_mac(msg3)
 
-    # msg1_ = msg1 + b'\x00' * (-len(msg1) % 16) + pack('>2Q', len(msg1), 0)
-    # blocks = [GF2p128(int.from_bytes(msg1_[i : i + 16], 'big')) for i in range(0, len(msg1_), 16)]
-    # blocks.append(GF2p128(int.from_bytes(AES_encrypt(key, nonce + b'\x00\x00\x00\x01'), 'big')))
-    # p = Polynomial(blocks)
-    # test_gmac = int.to_bytes(p(GF2p128(int.from_bytes(AES_encrypt(key, b'\x00' * 16), 'big'))).val, 16, 'big')
-    # print(gmac1, test_gmac)
-
-    # exit()
-
-    key_ = GF2p128(int.from_bytes(key, 'big'))
+    key_ = GF2p128(int.from_bytes(AES_encrypt(key, b'\x00' * 16), 'big'))
 
     def get_private_candidates(msg1, gmac1, msg2, gmac2):
         # build the blocks
@@ -447,24 +438,18 @@ def chall63():
         blocks1.append(GF2p128(int.from_bytes(gmac1, 'big')))
         blocks2.append(GF2p128(int.from_bytes(gmac2, 'big')))
         p = Polynomial(blocks1) + Polynomial(blocks2)
-        return set([(x.coeff[0] / x.coeff[1]).val for x in p.get_factors() if x.deg() == 1])
+        return set([(x.coeff[1] / x.coeff[0]).val for x in p.get_factors() if x.deg() == 1])
     
     print('Getting candidate 1...')
     candidates1 = get_private_candidates(msg1, gmac1, msg2, gmac2)
-    print(candidates1)
     print('Getting candidate 2...')
     candidates2 = get_private_candidates(msg2, gmac2, msg3, gmac3)
-    print(candidates2)
     print('Getting candidate 3...')
     candidates3 = get_private_candidates(msg1, gmac1, msg3, gmac3)
-    print(candidates3)
     candidates = candidates1 & candidates2 & candidates3
-    print(candidates)
     assert len(candidates) == 1
-    for recovered in candidates:
-        recovered = int.to_bytes(recovered, 16, 'big')
-    print(key)
-    print(recovered)
-    assert recovered == key
+    for recovered in candidates: break
+    assert recovered == key_.val
+    print('OK!')
 
 chall63()
