@@ -7,7 +7,7 @@ def _deg(x):
     return x.bit_length() if x > 0 else -1
 
 class GF2p128:
-    def __init__(self, val, m=0x100000000000000000000000000000087):
+    def __init__(self, val=0, m=0x100000000000000000000000000000087):
         self.val = val
         self.m = m
 
@@ -58,7 +58,7 @@ class GF2p128:
             power >>= 1
         return p
 
-    def __div__(self, obj):
+    def __truediv__(self, obj):
         return self * obj ** -1
 
     def __eq__(self, obj):
@@ -96,21 +96,31 @@ class GF2p128:
 
     def inv_prime(self):
         '''
-            Using Fermat's little theorem. Use the EGCD one because benchmarks:
+            Using Fermat's little theorem. Use the EGCD one because benchmarks.
                 inv normal: 4.990437030792236
                 inv prime : 95.93351244926453
         '''
         return pow(self, 2 ** 128 - 2)
 
 
-def gmac(key, msg, nonce):
+def gmac(key, msg, aad, nonce):
+    '''
+    Input:
+        @key:   key to be encrypted/GMAC
+        @msg:   message to be encrypted
+        @aad:   additional associated data
+        @nonce: 96-bit of nonce to XOR at the end
+    '''
     authkey = AES_encrypt(key, b'\x00' * 16)
     authkey = GF2p128(int.from_bytes(authkey, 'big'))
-    iv = generate_key(8)
-    encrypted = iv + AES_encrypt(key, msg, 'ctr', iv)
-    content = msg + b'\x00' * (-len(msg) % 16) + \
+    if msg is None:
+        iv = encrypted = b''
+    else:
+        iv = generate_key(8)
+        encrypted = iv + AES_encrypt(key, msg, 'ctr', iv)
+    content = aad + b'\x00' * (-len(aad) % 16) + \
                 encrypted + b'\x00' * (-len(encrypted) % 16) + \
-                pack('>2Q', len(msg), len(encrypted))
+                pack('>2Q', len(aad), len(encrypted))
     g = GF2p128(0)
     for i in range(0, len(content), 16):
         b = GF2p128(int.from_bytes(content[i : i + 16], 'big'))
@@ -120,7 +130,10 @@ def gmac(key, msg, nonce):
     s = GF2p128(int.from_bytes(s, 'big'))
     g += s
     mac = int.to_bytes(g.val, 16, 'big')
-    return encrypted, mac
+    if msg is None:
+        return mac
+    else:
+        return encrypted, mac
 
 
 class Polynomial:
@@ -141,10 +154,10 @@ class Polynomial:
         if type(order) is int:
             self.order = (order, 1)
         elif order is None:
-            if self.num_class is GF3:
-                self.order = (3, 1)
-            elif self.num_class is GF2p128:
+            if self.num_class is GF2p128:
                 self.order = (2, 128)
+            # elif self.num_class is GF3:
+            #     self.order = (3, 1)
             else:
                 self.order = None
         else:
@@ -175,7 +188,7 @@ class Polynomial:
         return len(self.coeff) - 1
     
     def __call__(self, val):
-        ret = 0
+        ret = self.num_class()
         for coeff in self.coeff:
             ret *= val
             ret += coeff
@@ -219,7 +232,7 @@ class Polynomial:
         for idx1, val1 in enumerate(self.coeff):
             for idx2, val2 in enumerate(obj.coeff):
                 coeffs[idx1 + idx2] += val1 * val2
-        return Polynomial(coeffs, self.num_class, self.order)
+        return self.copy(coeffs)
 
     def __pow__(self, power, mod=None):
         ret = self.copy()
@@ -287,10 +300,16 @@ class Polynomial:
     def egcd(self, obj):
         # returns GCD, (coeff 1, coeff 2)
         m, n = self, obj
-        m_coeff = (Polynomial([self.num_class(1)], order=self.order),
-                   Polynomial([self.num_class(0)], order=self.order))
-        n_coeff = (Polynomial([self.num_class(0)], order=self.order),
-                   Polynomial([self.num_class(1)], order=self.order))
+        zero = self.copy([self.num_class(0)])
+        one = self.copy([self.num_class(1)])
+
+        m_coeff = (one, zero)
+        n_coeff = (zero, one)
+
+        if m == zero:
+            return n, n_coeff
+        if n == zero:
+            return m, m_coeff
 
         while True:
             # print('m', m)
@@ -390,7 +409,7 @@ class Polynomial:
         # Cantor-Zassenhaus algorithm for equal-degree factorization.
         f, d = self, degree
         p, e = self.order
-        r = f.deg // d
+        r = f.deg() // d
         factors = {f}
         one = self.copy([self.num_class(1)])
 
@@ -408,33 +427,45 @@ class Polynomial:
                         factors = (factors - {u}) | {gcd_gu, u / gcd_gu}
 
         return factors
+    
+    def get_factors(self):
+        retval = dict()
+        for poly1, mult in self.sqr_free_factor().items():
+            subfactor = poly1.diff_deg_factor()
+            for poly2, degree in subfactor:
+                for poly3 in poly2.eq_deg_factor(degree):
+                    if poly3 in retval:
+                        retval[poly3] += mult
+                    else:
+                        retval[poly3] = mult
+        return retval
 
 
 # test class
-class GF3:
-    def __init__(self, val=0):
-        self.val = val
-    def __add__(self, obj):
-        return GF3((self.val + obj.val) % 3)
-    def __hash__(self):
-        return hash(self.val)
-    def __sub__(self, obj):
-        return GF3((self.val - obj.val) % 3)
-    def __mul__(self, obj):
-        return GF3((self.val * (obj if type(obj) is int else obj.val)) % 3)
-    def __truediv__(self, obj):
-        return self * obj ** -1
-    def __pow__(self, exp):
-        if exp < 0:
-            assert self.val > 0, "Cannot invert 0!"
-        return GF3(pow(self.val, abs(exp), 3))
-    def __str__(self):
-        return str(self.val)
-    __repr__ = __str__
-    def __eq__(self, obj):
-        return self.val == obj.val
+# class GF3:
+#     def __init__(self, val=0):
+#         self.val = val
+#     def __add__(self, obj):
+#         return GF3((self.val + obj.val) % 3)
+#     def __hash__(self):
+#         return hash(self.val)
+#     def __sub__(self, obj):
+#         return GF3((self.val - obj.val) % 3)
+#     def __mul__(self, obj):
+#         return GF3((self.val * (obj if type(obj) is int else obj.val)) % 3)
+#     def __truediv__(self, obj):
+#         return self * obj ** -1
+#     def __pow__(self, exp):
+#         if exp < 0:
+#             assert self.val > 0, "Cannot invert 0!"
+#         return GF3(pow(self.val, abs(exp), 3))
+#     def __str__(self):
+#         return str(self.val)
+#     __repr__ = __str__
+#     def __eq__(self, obj):
+#         return self.val == obj.val
 
-p = Polynomial([GF3(x) for x in [1,0,2,2,0,1,1,0,2,2,0,1]], order=(3, 1))
-factors = p.sqr_free_factor()
-for factor in factors:
-    print(factor, factor.diff_deg_factor())
+# p = Polynomial([GF3(x) for x in [1,0,2,2,0,1,1,0,2,2,0,1]], order=(3, 1))
+# factors = p.sqr_free_factor()
+# for factor in factors:
+#     print(factor, factor.diff_deg_factor())

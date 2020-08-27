@@ -10,6 +10,7 @@ from rsa import (
 )
 from tqdm import trange, tqdm
 from utils import (
+    AES_encrypt,
     sqrtmod,
     jacobi_symbol,
     invmod,
@@ -25,7 +26,9 @@ from threading import Thread
 from hashlib import sha256
 from fractions import Fraction
 from linalg import LLL
-from gmac import gmac, GF2p128
+from gmac import gmac, GF2p128, Polynomial
+from os import urandom
+from struct import pack
 
 def chall57():
     p = 7199773997391911030609999317773941274322764333428698921736339643928346453700085358802973900485592910475480089726140708102474957429903531369589969318716771
@@ -413,5 +416,55 @@ def chall62():
 
 def chall63():    
     key = b'choppaAim@UrFace'
+    nonce = urandom(12)
+    def gcm_mac(data):
+        return gmac(key, None, data, nonce)
+
+    msg1 = b'katarenai'
+    gmac1 = gcm_mac(msg1)
+    msg2 = b'nemurenai'
+    gmac2 = gcm_mac(msg2)
+    msg3 = b'toroimerai'
+    gmac3 = gcm_mac(msg3)
+
+    # msg1_ = msg1 + b'\x00' * (-len(msg1) % 16) + pack('>2Q', len(msg1), 0)
+    # blocks = [GF2p128(int.from_bytes(msg1_[i : i + 16], 'big')) for i in range(0, len(msg1_), 16)]
+    # blocks.append(GF2p128(int.from_bytes(AES_encrypt(key, nonce + b'\x00\x00\x00\x01'), 'big')))
+    # p = Polynomial(blocks)
+    # test_gmac = int.to_bytes(p(GF2p128(int.from_bytes(AES_encrypt(key, b'\x00' * 16), 'big'))).val, 16, 'big')
+    # print(gmac1, test_gmac)
+
+    # exit()
+
+    key_ = GF2p128(int.from_bytes(key, 'big'))
+
+    def get_private_candidates(msg1, gmac1, msg2, gmac2):
+        # build the blocks
+        msg1 += b'\x00' * (-len(msg1) % 16) + pack('>2Q', len(msg1), 0)
+        msg2 += b'\x00' * (-len(msg2) % 16) + pack('>2Q', len(msg2), 0)
+        blocks1 = [GF2p128(int.from_bytes(msg1[i : i + 16], 'big')) for i in range(0, len(msg1), 16)]
+        blocks2 = [GF2p128(int.from_bytes(msg2[i : i + 16], 'big')) for i in range(0, len(msg2), 16)]
+        blocks1.append(GF2p128(int.from_bytes(gmac1, 'big')))
+        blocks2.append(GF2p128(int.from_bytes(gmac2, 'big')))
+        p = Polynomial(blocks1) + Polynomial(blocks2)
+        return set([(x.coeff[0] / x.coeff[1]).val for x in p.get_factors() if x.deg() == 1])
+    
+    print('Getting candidate 1...')
+    candidates1 = get_private_candidates(msg1, gmac1, msg2, gmac2)
+    print(candidates1)
+    print('Getting candidate 2...')
+    candidates2 = get_private_candidates(msg2, gmac2, msg3, gmac3)
+    print(candidates2)
+    print('Getting candidate 3...')
+    candidates3 = get_private_candidates(msg1, gmac1, msg3, gmac3)
+    print(candidates3)
+    candidates = candidates1 & candidates2 & candidates3
+    print(candidates)
+    assert len(candidates) == 1
+    for recovered in candidates:
+        recovered = int.to_bytes(recovered, 16, 'big')
+    print(key)
+    print(recovered)
+    assert recovered == key
 
 chall63()
