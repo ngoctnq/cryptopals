@@ -119,15 +119,18 @@ def gmac(key, msg, nonce):
 
 
 class Polynomial:
-    def __init__(self, coeff, num_class=GF2p128):
-        self.coeff = coeff[:]
-        self.num_class = GF2p128
+    def __init__(self, coeff=None, num_class=GF2p128):
+        if coeff is None:
+            self.coeff = [num_class(0)]
+        else:
+            self.coeff = coeff[:]
+        self.num_class = num_class
 
     def __eq__(self, obj):
         return len(self.coeff) == len(obj.coeff) and all([x == y for (x, y) in zip(self.coeff, obj.coeff)])
 
     def copy(self):
-        return Polynomial(self.coeff[:], self.num_class)
+        return Polynomial(self.coeff, self.num_class)
 
     def deg(self):
         return len(self.coeff) - 1
@@ -172,20 +175,51 @@ class Polynomial:
         divider = self.copy()
         coeffs = []
         while divider.deg() >= obj.deg():
-            coeff = self[0] / obj[0]
+            coeff = self.coeff[0] / obj.coeff[0]
             divided = obj.copy()
-            divided.coeff += [GF2p128()] * (divider.deg() - obj.deg())
-            divider -= divided * coeff
+            divider -= (divided << (divider.deg() - obj.deg())) * coeff
             coeffs.append(coeff)
 
         return Polynomial(coeffs, self.num_class), divider
+
+    def __lshift__(self, shift):
+        retval = self.copy()
+        retval.coeff += [self.num_class(0)] * shift
+        return retval
+
+    def __rshift__(self, shift):
+        if shift > self.deg():
+            return Polynomial()
+        if shift == 0:
+            return self
+        return Polynomial(self.coeff[:-shift], self.num_class)
 
     def monic(self):
         lead_coeff = self.coeff[0]
         return Polynomial([x / lead_coeff for x in self.coeff], self.num_class)
 
+    def egcd(self, obj):
+        # returns GCD, (coeff 1, coeff 2)
+        m, n = self, obj
+        m_coeff = (self.num_class(1), self.num_class(0))
+        n_coeff = (self.num_class(0), self.num_class(1))
+
+        while True:
+            q, r = divmod(m, n)
+            if r == 0:
+                return n, n_coeff
+            m, n = n, r
+            # q = m - n * r
+            m_coeff, n_coeff = n_coeff, tuple(map(lambda x: x[0] - q * x[1], zip(m_coeff, n_coeff)))
+
+    def derivative(self):
+        retval = self.copy()
+        for i in range(1, self.deg() + 1):
+            retval.coeff[-i-1] *= self.num_class(i)
+        return retval >> 1
+
     def sqr_free_factor(self):
-        ...
+        return f / f.egcd(f.derivative())[0]
 
     def diff_deg_factor(self):
         ...
@@ -205,7 +239,7 @@ class Polynomial:
                 g = (h ** ((q ** d - 1) / 3) - 1) % f
 
             for u in S:
-                if u.deg() = d:
+                if u.deg() == d:
                     continue
                 
                 gcd_gu = gcd(g, u)
@@ -213,3 +247,7 @@ class Polynomial:
                     S = (S - {u}) | ({gcd_gu, u / gcd_gu})
 
         return S
+
+    
+p = Polynomial([1,0,2,2,0,1,1,0,2,2,0,1], int)
+print(p.egcd(p.derivative()))
