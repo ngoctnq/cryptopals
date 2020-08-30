@@ -32,13 +32,6 @@ class MontgomeryCurve(EllipticCurve):
         # this is to prevent recursive comparison
         return id(self) == id(obj)
     
-    def generate_point(self):
-        while True:
-            x = randrange(1, self.order)
-            y2 = ((x ** 3 + self.a * x * x + x) * invmod_prime(self.b, self.p)) % self.p
-            y = sqrtmod(y2, self.p) 
-            if y is not None:
-                return self.point(x, y)
 
 class MontgomeryPoint(EllipticPoint):
     def __init__(self, curve, x, y):

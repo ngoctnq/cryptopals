@@ -26,14 +26,6 @@ class WeierstrassCurve(EllipticCurve):
     def point(self, x, y):
         return WeierstrassPoint(self, x, y)
 
-    def generate_point(self):
-        while True:
-            x = randrange(1, self.order)
-            y2 = (x ** 3 + self.a * x + self.b) % self.p
-            y = sqrtmod(y2, self.p) 
-            if y is not None:
-                return self.point(x, y)
-
 
 class WeierstrassPoint(EllipticPoint):
     def __init__(self, curve, x, y):

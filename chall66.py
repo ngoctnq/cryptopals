@@ -50,7 +50,6 @@ print('Generating keypair...')
 while True:
     try:
         private, public = curve.generate_keypair()
-        assert private > 0
         break
     except (SomeCarryError, AssertionError):
         continue

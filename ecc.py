@@ -15,12 +15,12 @@ class EllipticCurve(ABC):
 
     # pylint: disable=no-member
     def generate_keypair(self):
-        private = randrange(0, self.q)
+        private = randrange(1, self.q)
         public = self.g * private
         return private, public
     
-    @abstractmethod
-    def generate_point(self): pass
+    def generate_point(self):
+        return self.generate_keypair[1]
 
 
 class EllipticPoint(ABC):
