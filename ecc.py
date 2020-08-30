@@ -20,7 +20,7 @@ class EllipticCurve(ABC):
         return private, public
     
     def generate_point(self):
-        return self.generate_keypair[1]
+        return self.generate_keypair()[1]
 
 
 class EllipticPoint(ABC):
