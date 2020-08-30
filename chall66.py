@@ -17,6 +17,13 @@ class BrokenCurve(WeierstrassCurve):
 
     def point(self, x, y):
         return BrokenPoint(self, x, y)
+    
+    def generate_keypair(self):
+        while True:
+            try:
+                return super().generate_keypair()
+            except SomeCarryError: ...
+
 
 class BrokenPoint(WeierstrassPoint):
     def __add__(self, obj):
@@ -50,6 +57,9 @@ print('Generating keypair...')
 while True:
     try:
         private, public = curve.generate_keypair()
+        # so far, try only 3 bit
+        private >>= (private.bit_length() - 3)
+        public = curve.g * private
         break
     except SomeCarryError:
         continue
@@ -86,7 +96,11 @@ def brute(_=None):
             found = False
 
             # try new points
-            point = curve.generate_point()
+            while True:
+                point = curve.generate_point()
+                try: point * val
+                except SomeCarryError: ...
+                else: break
             try: point * add0
             except SomeCarryError: succ0 = False
             else: succ0 = True
@@ -96,10 +110,12 @@ def brute(_=None):
             if succ0 ^ succ1:
                 if not succ0:
                     if handshake(point):
+                        print(1)
                         trueval = add1
                         found = True
                 if not succ1:
                     if handshake(point):
+                        print(0)
                         trueval = add0
                         found = True
             
@@ -109,9 +125,11 @@ def brute(_=None):
                     if val == 0: return
                     if val.bit_length() == length:
                         recovered.value = trueval
-                        print(trueval & 1, end='', flush=True)
+                        # print(trueval & 1, end='', flush=True)
+                        print('Solving:', trueval)
 
-print('Solving: 1', end='', flush=True)
+# print('Solving: 1', end='', flush=True)
+print('Solving: 1')
 pool = Pool(cpu_count())
 pool.map(brute, iterable=[None] * cpu_count())
 # brute()
