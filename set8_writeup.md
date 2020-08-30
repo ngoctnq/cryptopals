@@ -4,7 +4,7 @@
 và email thì cũng đến mùa quýt mới được trả lời,<br>
     nên mình đã Google đề để làm  (｡・ ω<)ゞ</div>
     
-**<div align="center">Cẩn thận nhé, phần này rất rất dài, và khó hơn các phần trước nhiều.</div>**
+**<div align="center">Cẩn thận nhé, phần này rất rất dài, và khó hơn các phần trước rất nhiều.</div>**
 ***
 
 # [Challenge 57: Diffie-Hellman Revisited: Small Subgroup Confinement](https://toadstyle.org/cryptopals/57.txt)
@@ -1691,6 +1691,8 @@ class GF3:
 ```
 
 # [Challenge 64: Key-Recovery Attacks on GCM with a Truncated MAC](https://toadstyle.org/cryptopals/64.txt)
+
+
 
 # [Challenge 65: Truncated-MAC GCM Revisited: Improving the Key-Recovery Attack via Ciphertext Length Extension](https://toadstyle.org/cryptopals/65.txt)
 

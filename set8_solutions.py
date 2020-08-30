@@ -491,7 +491,8 @@ def chall64():
     assert (gf2vec(test * test2) == (gf2mat(test2) @ gf2vec(test)) % 2).all()
 
     def get_Ad(blocks):
-        power = sqr_mat
+        # starting from ^2 since ^1 is the section length
+        power = sqr_mat @ sqr_mat
         acc = np.zeros((128, 128), dtype=np.uint8)
         for block in blocks:
             acc = (gf2mat(block2gf(block)) @ power + acc) % 2
@@ -508,7 +509,7 @@ def chall64():
                   [bytes(16)] * (127 - block_idx)
         return get_Ad(payload)
 
-    n = 17
+    n = 16
     Ad_0 = get_Ad([b'\x00' * 16] * (n + 1))
     # rows = bits in Ad, col = bits in blocks
     dependency = np.empty(((n - 1) * 128, n * 128), dtype=np.uint8)
@@ -520,5 +521,7 @@ def chall64():
                 dependency[i * 128 + j - 128, bit_idx] = int(mat[i][j] == Ad_0[i][j])
     
     print(dependency)
+
+# chall66 is done separately for the parallelization
 
 chall64()
