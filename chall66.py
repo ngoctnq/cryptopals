@@ -81,6 +81,11 @@ def brute(_=None):
         add1 = add0 + 1
 
         while True:
+            with recovered.get_lock():
+                if recovered.value.bit_length() > length:
+                    break
+            found = False
+
             # try new points
             point = curve.generate_point()
             try: point * add0
@@ -93,20 +98,21 @@ def brute(_=None):
                 if not succ0:
                     if handshake(point):
                         trueval = add1
-                        break
+                        found = True
                 if not succ1:
                     if handshake(point):
                         trueval = add0
-                        break
-        
-        with recovered.get_lock():
-            val = recovered.value
-            if val == 0: return
-            if val.bit_length() == length:
-                recovered.value = trueval
-                print(trueval & 1, end='', flush=True)
+                        found = True
+            
+            if found:
+                with recovered.get_lock():
+                    val = recovered.value
+                    if val == 0: return
+                    if val.bit_length() == length:
+                        recovered.value = trueval
+                        print(trueval & 1, end='', flush=True)
 
 print('Solving: 1', end='', flush=True)
-# pool = Pool(cpu_count())
-# pool.map(brute, iterable=[None] * 8)
-brute()
+pool = Pool(cpu_count())
+pool.map(brute, iterable=[None] * cpu_count())
+# brute()
