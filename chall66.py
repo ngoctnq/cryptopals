@@ -51,7 +51,7 @@ while True:
     try:
         private, public = curve.generate_keypair()
         break
-    except (SomeCarryError, AssertionError):
+    except SomeCarryError:
         continue
 print('Target :', bin(private)[2:])
 
