@@ -49,11 +49,12 @@ class BrokenPoint(WeierstrassPoint):
         return acc
 
 curve = BrokenCurve(fail_freq=2 ** 8)
-recovered = Value('i')
+recovered = Value('Q')
 recovered.value = 1
 
 print('Generating keypair...')
 private, public = curve.generate_keypair()
+
 # while True:
 #     try:
 #         private, public = curve.generate_keypair()
@@ -80,7 +81,7 @@ def brute(_=None):
         if val == 0: return
         if curve.g * val == public:
             assert val == private
-            print('OK')
+            print('\nOK')
             with recovered.get_lock():
                 recovered.value = 0
             return val
@@ -105,7 +106,7 @@ def brute(_=None):
             # if the last bit is 0, there's no next doubling.
             if curve.g * (val * 2) == public:
                 assert val * 2 == private
-                print('OK')
+                print('\nOK')
                 with recovered.get_lock():
                     recovered.value = 0
                 return val * 2
