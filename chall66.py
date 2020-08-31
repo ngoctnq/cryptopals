@@ -49,24 +49,8 @@ class BrokenPoint(WeierstrassPoint):
         return acc
 
 curve = BrokenCurve(fail_freq=2 ** 8)
-# because curve.q is 125-bit
-half1 = Value('Q')
-half2 = Value('Q')
-half2.value = 1
-
 print('Generating keypair...')
 private, public = curve.generate_keypair()
-
-# while True:
-#     try:
-#         private, public = curve.generate_keypair()
-#         # so far, try only 3 bit
-#         private >>= (private.bit_length() - 5)
-#         public = curve.g * private
-#         break
-#     except SomeCarryError:
-#         continue
-print('Target :', bin(private)[2:])
 
 def handshake(point):
     try:
@@ -75,6 +59,10 @@ def handshake(point):
     except SomeCarryError:
         return False
 
+# because curve.q is 125-bit
+half1 = Value('Q')
+half2 = Value('Q')
+half2.value = 1
 def brute(_=None):
     while True:
         with half1.get_lock():
