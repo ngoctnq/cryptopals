@@ -103,9 +103,12 @@ def brute(_=None):
                 else: break
 
             # if the last bit is 0, there's no next doubling.
-            if point_ == public:
-                trueval = add0
-                found = True
+            if curve.g * (val * 2) == public:
+                assert val * 2 == private
+                print('OK')
+                with recovered.get_lock():
+                    recovered.value = 0
+                return val
             else:
                 try: point_ + point_
                 except SomeCarryError: succ0 = False
