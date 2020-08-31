@@ -49,8 +49,10 @@ class BrokenPoint(WeierstrassPoint):
         return acc
 
 curve = BrokenCurve(fail_freq=2 ** 8)
-recovered = Value('Q')
-recovered.value = 1
+# because curve.q is 125-bit
+half1 = Value('Q')
+half2 = Value('Q')
+half2.value = 1
 
 print('Generating keypair...')
 private, public = curve.generate_keypair()
@@ -75,15 +77,16 @@ def handshake(point):
 
 def brute(_=None):
     while True:
-        with recovered.get_lock():
-            val = recovered.value
+        with half1.get_lock():
+            val = (half1.value << 64) | half2.value
         # check if we got it
         if val == 0: return
         if curve.g * val == public:
             assert val == private
             print('\nOK')
-            with recovered.get_lock():
-                recovered.value = 0
+            with half1.get_lock():
+                half1.value = 0
+                half2.value = 0
             return val
 
         length = val.bit_length()
@@ -91,9 +94,10 @@ def brute(_=None):
         add1 = add0 + 1
 
         while True:
-            with recovered.get_lock():
-                if recovered.value == 0 or recovered.value.bit_length() > length:
-                    break
+            with half1.get_lock():
+                val = (half1.value << 64) | half2.value
+            if val == 0 or val.bit_length() > length:
+                break
             found = False
 
             # try new points
@@ -107,8 +111,9 @@ def brute(_=None):
             if curve.g * (val * 2) == public:
                 assert val * 2 == private
                 print('\nOK')
-                with recovered.get_lock():
-                    recovered.value = 0
+                with half1.get_lock():
+                    half1.value = 0
+                    half2.value = 0
                 return val * 2
                 
             else:
@@ -129,11 +134,12 @@ def brute(_=None):
                             found = True
             
             if found:
-                with recovered.get_lock():
-                    val = recovered.value
+                with half1.get_lock():
+                    val = (half1.value << 64) | half2.value
                     if val == 0: return
                     if val.bit_length() == length:
-                        recovered.value = trueval
+                        half1.value = (trueval >> 64)
+                        half2.value = (trueval & 0xFFFFFFFFFFFFFFFF)
                         print(trueval & 1, end='', flush=True)
 
 print('Solving: 1', end='', flush=True)
