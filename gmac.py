@@ -126,6 +126,7 @@ def gmac(key, msg, aad, nonce):
         b = GF2p128(int.from_bytes(content[i : i + 16], 'big'))
         g += b
         g *= authkey
+    print('preauth', g.val)
     s = AES_encrypt(key, nonce + b'\x00\x00\x00\x01')
     s = GF2p128(int.from_bytes(s, 'big'))
     g += s
@@ -150,8 +151,8 @@ def gmac_decrypt(key, cipher, aad, mac, nonce):
     if len(cipher) == 0:
         iv = encrypted = b''
     else:
-        iv = encrypted[:8]
-        encrypted = encrypted[8:]
+        iv = cipher[:8]
+        encrypted = cipher[8:]
     content = aad + b'\x00' * (-len(aad) % 16) + \
                 iv + encrypted + b'\x00' * (-len(iv + encrypted) % 16) + \
                 pack('>2Q', len(aad), len(iv + encrypted))
@@ -164,7 +165,7 @@ def gmac_decrypt(key, cipher, aad, mac, nonce):
     s = GF2p128(int.from_bytes(s, 'big'))
     g += s
     if mac == int.to_bytes(g.val, 16, 'big'):
-        return AES_decrypt(key, cipher, 'ctr', iv)
+        return AES_decrypt(key, encrypted, 'ctr', iv)
     else:
         raise RuntimeError("Invalid MAC!")
 

@@ -1696,6 +1696,7 @@ class GF3:
 
 # [Challenge 65: Truncated-MAC GCM Revisited: Improving the Key-Recovery Attack via Ciphertext Length Extension](https://toadstyle.org/cryptopals/65.txt)
 
+
 # [Challenge 66: Exploiting Implementation Errors in Diffie-Hellman](https://toadstyle.org/cryptopals/66.txt)
 
 Khi lập trình bài này, để lưu giá trị key, mình đã gặp đúng vấn đề được nói tới của bài này một cách oái oăm =)) Chẳng là, với finite field order 125-bit thì giá trị của private key cũng tầm đó, trong khi bình thường `int` type có mỗi 31-bit, và dài nhất là `unsigned long long` cũng chỉ có 64-bit. Thế nên lúc mình ban đầu code nó cứ đến 31-32 bit là lỗi làm mình vò đầu bứt tai :(

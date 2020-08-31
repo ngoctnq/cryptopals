@@ -1,6 +1,8 @@
 import numpy as np
-from gmac import gmac, GF2p128, Polynomial
+from gmac import gmac, GF2p128, Polynomial, gmac_decrypt
 from tqdm import trange
+from utils import generate_key, AES_encrypt
+from struct import pack
 
 def block2gf(block):
     assert len(block) == 16
@@ -37,6 +39,9 @@ test = block2gf(b"One day I'm gon'")
 assert (gf2vec(test ** 2) == (sqr_mat @ gf2vec(test)) % 2).all()
 test2 = block2gf(b'marry a pornstar')
 assert (gf2vec(test * test2) == (gf2mat(test2) @ gf2vec(test)) % 2).all()
+assert (gf2vec(test * test2) == (gf2mat(test) @ gf2vec(test2)) % 2).all()
+assert (gf2vec(test ** 16) == (np.linalg.matrix_power(sqr_mat, 4) @ gf2vec(test)) % 2).all()
+assert (gf2vec(test2 ** 8) == (sqr_mat @ sqr_mat @ sqr_mat @ gf2vec(test2)) % 2).all()
 
 def get_Ad(blocks):
     # starting from ^2 since ^1 is the section length
@@ -57,6 +62,26 @@ def get_Ad_loc(i):
                 [bytes(16)] * (127 - block_idx)
     return get_Ad(payload)
 
+# test signing
+key = b'Laidback_LukeRMX'
+nonce = b'Knife Party_'
+# more than one block
+message = b'For Death and Desire'
+encrypted, hashed = gmac(key, message, b'', nonce)
+assert message == gmac_decrypt(key, encrypted, b'', hashed, nonce)
+authkey = AES_encrypt(key, b'\x00' * 16)
+length = pack('>2Q', 0, len(encrypted))
+s = AES_encrypt(key, nonce + b'\x00\x00\x00\x01')
+padded = encrypted + b'\x00' * (-len(encrypted) % 16)
+blocks = [padded[i : i + 16] for i in range(0, len(padded), 16)][::-1]
+Ad = get_Ad(blocks)
+preauth = ((Ad + gf2mat(block2gf(length))) @ gf2vec(block2gf(authkey))) % 2
+print('preaut_', vec2gf(preauth).val)
+hashed2 = int.to_bytes(vec2gf((preauth + gf2vec(block2gf(s))) % 2).val, 16, 'big')
+print(hashed)
+print(hashed2)
+
+'''
 n = 16
 Ad_0 = get_Ad([b'\x00' * 16] * (n + 1))
 # rows = bits in Ad, col = bits in blocks
@@ -69,3 +94,4 @@ for bit_idx in trange(n * 128):
             dependency[i * 128 + j - 128, bit_idx] = int(mat[i][j] == Ad_0[i][j])
 
 print(dependency)
+'''
