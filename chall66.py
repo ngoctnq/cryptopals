@@ -28,7 +28,7 @@ class BrokenCurve(WeierstrassCurve):
 class BrokenPoint(WeierstrassPoint):
     def __add__(self, obj):
         # if the star aligns, fail
-        if (self.x * obj.x) % self.curve.fail_freq == 0:
+        if (self.x + obj.x) % self.curve.fail_freq == 0:
             raise SomeCarryError
         ret = super().__add__(obj)
         ret.__class__ = self.__class__
@@ -48,21 +48,21 @@ class BrokenPoint(WeierstrassPoint):
                 acc += self
         return acc
 
-curve = BrokenCurve(fail_freq=256)
+curve = BrokenCurve(fail_freq=2 ** 8)
 recovered = Value('i')
 recovered.value = 1
 
-# ironic enough, this might fail due to the bug
 print('Generating keypair...')
-while True:
-    try:
-        private, public = curve.generate_keypair()
-        # so far, try only 3 bit
-        private >>= (private.bit_length() - 3)
-        public = curve.g * private
-        break
-    except SomeCarryError:
-        continue
+private, public = curve.generate_keypair()
+# while True:
+#     try:
+#         private, public = curve.generate_keypair()
+#         # so far, try only 3 bit
+#         private >>= (private.bit_length() - 5)
+#         public = curve.g * private
+#         break
+#     except SomeCarryError:
+#         continue
 print('Target :', bin(private)[2:])
 
 def handshake(point):
@@ -80,7 +80,7 @@ def brute(_=None):
         if val == 0: return
         if curve.g * val == public:
             assert val == private
-            print('\nOK')
+            print('OK')
             with recovered.get_lock():
                 recovered.value = 0
             return val
@@ -91,33 +91,37 @@ def brute(_=None):
 
         while True:
             with recovered.get_lock():
-                if recovered.value.bit_length() > length:
+                if recovered.value == 0 or recovered.value.bit_length() > length:
                     break
             found = False
 
             # try new points
             while True:
                 point = curve.generate_point()
-                try: point * val
+                try: point_ = point * (val * 2)
                 except SomeCarryError: ...
                 else: break
-            try: point * add0
-            except SomeCarryError: succ0 = False
-            else: succ0 = True
-            try: point * add1
-            except SomeCarryError: succ1 = False
-            else: succ1 = True
-            if succ0 ^ succ1:
-                if not succ0:
-                    if handshake(point):
-                        print(1)
-                        trueval = add1
-                        found = True
-                if not succ1:
-                    if handshake(point):
-                        print(0)
-                        trueval = add0
-                        found = True
+
+            # if the last bit is 0, there's no next doubling.
+            if point_ == public:
+                trueval = add0
+                found = True
+            else:
+                try: point_ + point_
+                except SomeCarryError: succ0 = False
+                else: succ0 = True
+                try: point_ + point
+                except SomeCarryError: succ1 = False
+                else: succ1 = True
+                if succ0 ^ succ1:
+                    if succ1:
+                        if handshake(point):
+                            trueval = add1
+                            found = True
+                    if succ0:
+                        if handshake(point):
+                            trueval = add0
+                            found = True
             
             if found:
                 with recovered.get_lock():
@@ -125,11 +129,9 @@ def brute(_=None):
                     if val == 0: return
                     if val.bit_length() == length:
                         recovered.value = trueval
-                        # print(trueval & 1, end='', flush=True)
-                        print('Solving:', trueval)
+                        print(trueval & 1, end='', flush=True)
 
-# print('Solving: 1', end='', flush=True)
-print('Solving: 1')
+print('Solving: 1', end='', flush=True)
 pool = Pool(cpu_count())
 pool.map(brute, iterable=[None] * cpu_count())
 # brute()
