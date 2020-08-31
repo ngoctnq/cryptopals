@@ -380,7 +380,7 @@ def chall62():
         return hashed, r, s
     
     # generate keys
-    secret, public = curve.generate_keypair()
+    secret, _ = curve.generate_keypair()
     # sign like 33 messages for keepsake
     text = """[Chorus: Frank Ocean]\nHuman beings in a mob\nWhat's a mob to a king? What's a king to a god?\nWhat's a god to a non-believer who don't believe in anything?\nWill he make it out alive? Alright, alright, no church in the wild\n\n[Bridge: The-Dream]\nI live by you, desire\nI stand by you, walk through the fire\nYour love is my scripture\nLet me in through your encryption\nYeah, yeah\n\n[Verse 2: Kanye West]\nCoke on her black skin made it stripe like a zebra\nI call that jungle fever\nYou will not control the threesome\nJust roll the weed up until I get me some\nWe formed a new religion\nNo sins as long as there's permission\nAnd deception is the only felony\nSo never fuck nobody without telling me\nSunglasses and Advil\nLast night was mad real\nSun coming up, 5 a.m\nI wonder if they got cabs still\nThinking 'bout the girl in all leopard\nWho was rubbing the wood like Kiki Shepard\nTwo tattoos: one read "No Apologies"\nThe other said "Love is Cursed by Monogamy"\nIt’s something that the pastor don’t preach\nIt’s something that a teacher can’t teach\nWhen we die, the money we can’t keep\nBut we probably spend it all 'cause the pain ain’t cheap\nPreach"""
     text = text.replace('\n\n', '\n').split('\n')
