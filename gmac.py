@@ -126,7 +126,6 @@ def gmac(key, msg, aad, nonce):
         b = GF2p128(int.from_bytes(content[i : i + 16], 'big'))
         g += b
         g *= authkey
-    print('preauth', g.val)
     s = AES_encrypt(key, nonce + b'\x00\x00\x00\x01')
     s = GF2p128(int.from_bytes(s, 'big'))
     g += s
