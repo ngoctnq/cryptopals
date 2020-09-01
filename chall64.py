@@ -9,19 +9,19 @@ def block2gf(block):
     return GF2p128(int.from_bytes(block, 'big'))
 
 def gf2vec(val: GF2p128):
-    ret = np.empty((128,), dtype=np.uint8)
+    ret = np.empty((128,), dtype=np.int8)
     val = val.val
     for i in range(128):
         ret[i] = val & 1
         val >>= 1
     return ret
 
-sqr_mat = np.empty((128, 128), dtype=np.uint8)
+sqr_mat = np.empty((128, 128), dtype=np.int8)
 for i in range(128):
     sqr_mat[:, i] = gf2vec(GF2p128(1 << i) ** 2)
 
 def gf2mat(val: GF2p128):
-    ret = np.empty((128, 128), dtype=np.uint8)
+    ret = np.empty((128, 128), dtype=np.int8)
     acc = GF2p128(1)
     for i in range(128):
         ret[:, i] = gf2vec(val * acc)
@@ -35,6 +35,34 @@ def vec2gf(vec: np.array):
         ret |= int(bit)
     return GF2p128(ret)
 
+def gaussian_nullspace(mat):
+    mat = mat.T
+    target = np.eye(mat.shape[0], dtype=np.int8)
+    idx = 0
+    rank = 0
+    while True:
+        if idx == mat.shape[1]:
+            break
+        row_idx = np.flatnonzero(mat[:, idx])
+        idx += 1
+        if len(row_idx) == 0: continue
+        if row_idx[0] != rank:
+            # swap
+            mat[rank, :], mat[row_idx[0], :] = mat[row_idx[0], :], mat[rank, :]
+            target[rank, :], target[row_idx[0], :] = target[row_idx[0], :], target[rank, :]
+        # now subtract from the rest
+        for idx_ in row_idx[1:]:
+            mat[idx_, :] = (mat[idx_, :] - mat[rank, :]) % 2
+            target[idx_, :] = (target[idx_, :] - target[rank, :]) % 2
+        rank += 1
+
+    return target[rank:, :]
+
+arr = np.random.randint(2, size=(5, 4))
+print(arr)
+print(gaussian_nullspace(arr))
+exit()
+
 test = block2gf(b"One day I'm gon'")
 assert (gf2vec(test ** 2) == (sqr_mat @ gf2vec(test)) % 2).all()
 test2 = block2gf(b'marry a pornstar')
@@ -46,7 +74,7 @@ assert (gf2vec(test2 ** 8) == (sqr_mat @ sqr_mat @ sqr_mat @ gf2vec(test2)) % 2)
 def get_Ad(blocks):
     # higher order/beginning of blocks first, based on Horner's method
     # remember that this only deals with 2^i blocks.
-    acc = np.zeros((128, 128), dtype=np.uint8)
+    acc = np.zeros((128, 128), dtype=np.int8)
     for block in blocks:
         acc = ((gf2mat(block2gf(block)) + acc) @ sqr_mat) % 2
     return (acc @ sqr_mat) % 2
@@ -66,7 +94,7 @@ n = 17
 X = np.eye(n * 128)
 Ad_0 = get_Ad([b'\x00' * 16] * (n + 1))
 # rows = bits in Ad, col = bits in blocks
-dependency = np.empty(((n - 1) * 128, n * 128), dtype=np.uint8)
+dependency = np.empty(((n - 1) * 128, n * 128), dtype=np.int8)
 for bit_idx in trange(n * 128):
     mat = get_Ad_loc(bit_idx)
     shape = mat.shape
