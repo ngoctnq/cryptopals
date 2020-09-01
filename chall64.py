@@ -41,24 +41,32 @@ def gaussian_nullspace(mat):
     idx = 0
     rank = 0
     while True:
-        if idx == mat.shape[1]:
+        if idx == mat.shape[1] or rank == min(mat.shape):
             break
-        row_idx = np.flatnonzero(mat[:, idx])
+        row_idx = np.flatnonzero(mat[rank:, idx]) + rank
         idx += 1
         if len(row_idx) == 0: continue
         if row_idx[0] != rank:
             # swap
-            mat[rank, :], mat[row_idx[0], :] = mat[row_idx[0], :], mat[rank, :]
-            target[rank, :], target[row_idx[0], :] = target[row_idx[0], :], target[rank, :]
+            mat[[rank, row_idx[0]]] = mat[[row_idx[0], rank]]
+            target[[rank, row_idx[0]]] = target[[row_idx[0], rank]]
         # now subtract from the rest
         for idx_ in row_idx[1:]:
             mat[idx_, :] = (mat[idx_, :] - mat[rank, :]) % 2
             target[idx_, :] = (target[idx_, :] - target[rank, :]) % 2
         rank += 1
 
-    return target[rank:, :]
+    print(target)
+    target = target[rank:, :].T
+    print(target)
+    target = np.unique(target, axis=1)
+    print(target)
+    target = target[np.any(target, axis=1)]
+    print(target)
+    return target
 
-arr = np.random.randint(2, size=(5, 4))
+np.random.seed(123)
+arr = np.random.randint(2, size=(4, 6))
 print(arr)
 print(gaussian_nullspace(arr))
 exit()
