@@ -135,40 +135,6 @@ def gmac(key, msg, aad, nonce):
     else:
         return encrypted, mac
 
-
-def gmac_decrypt(key, cipher, aad, mac, nonce):
-    '''
-    Input:
-        @key:       key to be encrypted/GMAC
-        @cipher:    cipher to be decrypted
-        @aad:       additional associated data
-        @mac:       the generated MAC to be checked
-        @nonce:     96-bit of nonce to XOR at the end
-    '''
-    authkey = AES_encrypt(key, b'\x00' * 16)
-    authkey = GF2p128(int.from_bytes(authkey, 'big'))
-    if len(cipher) == 0:
-        iv = encrypted = b''
-    else:
-        iv = cipher[:8]
-        encrypted = cipher[8:]
-    content = aad + b'\x00' * (-len(aad) % 16) + \
-                iv + encrypted + b'\x00' * (-len(iv + encrypted) % 16) + \
-                pack('>2Q', len(aad), len(iv + encrypted))
-    g = GF2p128(0)
-    for i in range(0, len(content), 16):
-        b = GF2p128(int.from_bytes(content[i : i + 16], 'big'))
-        g += b
-        g *= authkey
-    s = AES_encrypt(key, nonce + b'\x00\x00\x00\x01')
-    s = GF2p128(int.from_bytes(s, 'big'))
-    g += s
-    if mac == int.to_bytes(g.val, 16, 'big'):
-        return AES_decrypt(key, encrypted, 'ctr', iv)
-    else:
-        raise RuntimeError("Invalid MAC!")
-
-
 class Polynomial:
     # coeffs are larger-order-first
     # order (p, e) is the p^e prime power order of the coeff field

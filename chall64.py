@@ -1,8 +1,13 @@
 import numpy as np
-from gmac import gmac, GF2p128, Polynomial, gmac_decrypt
+from gmac import gmac, GF2p128, Polynomial
 from tqdm import trange
 from utils import generate_key, AES_encrypt
 from struct import pack
+from random import seed
+
+# for reproducibility
+seed(123)
+np.random.seed(456)
 
 def block2gf(block):
     assert len(block) == 16
@@ -56,20 +61,14 @@ def gaussian_nullspace(mat):
             target[idx_, :] = (target[idx_, :] - target[rank, :]) % 2
         rank += 1
 
-    print(target)
+    # transpose so column combination is easier
     target = target[rank:, :].T
-    print(target)
+    # remove duplicate vectors
     target = np.unique(target, axis=1)
-    print(target)
-    target = target[np.any(target, axis=1)]
-    print(target)
+    # remove zero vector if exists
+    target = target[:, np.any(target, axis=0)]
     return target
 
-np.random.seed(123)
-arr = np.random.randint(2, size=(4, 6))
-print(arr)
-print(gaussian_nullspace(arr))
-exit()
 
 test = block2gf(b"One day I'm gon'")
 assert (gf2vec(test ** 2) == (sqr_mat @ gf2vec(test)) % 2).all()
@@ -81,7 +80,7 @@ assert (gf2vec(test2 ** 8) == (sqr_mat @ sqr_mat @ sqr_mat @ gf2vec(test2)) % 2)
 
 def get_Ad(blocks):
     # higher order/beginning of blocks first, based on Horner's method
-    # remember that this only deals with 2^i blocks.
+    # remember that this only deals with 2^i-th blocks.
     acc = np.zeros((128, 128), dtype=np.int8)
     for block in blocks:
         acc = ((gf2mat(block2gf(block)) + acc) @ sqr_mat) % 2
@@ -97,17 +96,45 @@ def get_Ad_loc(i):
                 [bytes(16)] * (127 - block_idx)
     return get_Ad(payload)
 
-n = 17
-# accumulator through the iterations
-X = np.eye(n * 128)
-Ad_0 = get_Ad([b'\x00' * 16] * (n + 1))
-# rows = bits in Ad, col = bits in blocks
-dependency = np.empty(((n - 1) * 128, n * 128), dtype=np.int8)
-for bit_idx in trange(n * 128):
-    mat = get_Ad_loc(bit_idx)
-    shape = mat.shape
-    for i in range(1, n):
-        for j in range(shape[1]):
-            dependency[i * 128 + j - 128, bit_idx] = int(mat[i][j] == Ad_0[i][j])
+def gmac_ok(key, cipher, mac, nonce):
+    '''
+    Input:
+        @key:       key to be encrypted/GMAC
+        @cipher:    cipher to be decrypted
+        @mac:       the generated MAC to be checked
+        @nonce:     96-bit of nonce to XOR at the end
+    '''
+    authkey = AES_encrypt(key, b'\x00' * 16)
+    authkey = GF2p128(int.from_bytes(authkey, 'big'))
+    if len(cipher) == 0:
+        iv = encrypted = b''
+    else:
+        iv = cipher[:8]
+        encrypted = cipher[8:]
+    content = iv + encrypted + b'\x00' * (-len(iv + encrypted) % 16) + \
+              pack('>2Q', 0, len(iv + encrypted))
+    g = GF2p128(0)
+    for i in range(0, len(content), 16):
+        b = GF2p128(int.from_bytes(content[i : i + 16], 'big'))
+        g += b
+        g *= authkey
+    s = AES_encrypt(key, nonce + b'\x00\x00\x00\x01')
+    s = GF2p128(int.from_bytes(s, 'big'))
+    g += s
+    return int.to_bytes(g.val, 16, 'big').startswith(mac)
 
-print(dependency)
+n = 16
+# accumulator through the iterations
+X = np.eye(128)
+Ad_0 = get_Ad([b'\x00' * 16] * n)
+
+from joblib import Parallel, delayed
+def get_dependency_matrix():
+    # rows = bits in Ad*X, col = bits in blocks
+    Ad0_ = Ad_0 @ X
+    no_of_zero_rows = n * 128 // X.shape[1] - 1
+    def get_col(bit_idx):
+        return ((get_Ad_loc(bit_idx) @ X)[:no_of_zero_rows, :] != Ad0_[:no_of_zero_rows, :]).astype(np.int8).flatten()
+    return np.stack(Parallel(n_jobs=8)(delayed(get_col)(row_idx) for row_idx in trange(n * 128)), axis=1)
+
+print(get_dependency_matrix())
