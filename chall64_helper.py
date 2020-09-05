@@ -29,7 +29,8 @@ def format_time(sec):
         acc += f'{ss} second'
         if ss > 1: acc += 's'
         acc += ' '
-    return acc.strip()
+    if len(acc) == 0: return 'no time at all!'
+    else: return acc.strip() + '.'
 
 def block2gf(block):
     assert len(block) == 16
@@ -139,13 +140,28 @@ found = Value('b')
 def set_value(val):
     with found.get_lock(): found.value = val
 
-def try_nullvec(gmac_ok, basis, encrypted, signature):
+def gmac_ok(key, cipher, signature, nonce):
+        authkey = AES_encrypt(key, b'\x00' * 16)
+        authkey = GF2p128(int.from_bytes(authkey, 'big'))
+        content = cipher + b'\x00' * (-len(cipher) % 16) + pack('>2Q', 0, len(cipher))
+        g = GF2p128(0)
+        for i in range(0, len(content), 16):
+            b = GF2p128(int.from_bytes(content[i : i + 16], 'big'))
+            g += b
+            g *= authkey
+        s = AES_encrypt(key, nonce + b'\x00\x00\x00\x01')
+        s = GF2p128(int.from_bytes(s, 'big'))
+        g += s
+        
+        return int.to_bytes(g.val, 16, 'big')[-trunc_size // 8:] == signature
+
+def try_nullvec(basis, encrypted, key, signature, nonce):
     while True:
         if found.value: break
         nullvec = (basis @ np.random.randint(2, size=basis.shape[1])) % 2
         if not nullvec.any(): continue
         # remove get_Ad_nullvec
-        if gmac_ok(patch_encrypted(encrypted, nullvec), signature):
+        if gmac_ok(key, patch_encrypted(encrypted, nullvec), signature, nonce):
         # if not ((get_Ad(nullvec)[:trunc_size] @ authkey) % 2).any():
             set_value(1)
             return nullvec
