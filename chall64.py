@@ -62,7 +62,7 @@ while X.shape[1] > 1:
         [(gmac_ok, nullspace, encrypted, signature)] * cpu_count
     )
     toc = time()
-    print('That took', format_time(toc - tic), 'seconds.')
+    print('That took', format_time(toc - tic) + '.')
     for i in nullvec:
         if i is not None:
             nullvec = i
