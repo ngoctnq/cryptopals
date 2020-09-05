@@ -32,8 +32,7 @@ def gmac_ok(cipher, mac):
 pool = Pool(cpu_count())
 while X.shape[1] > 1:
     print(X.shape[1], 'basis vectors left.')
-    # no_of_zero_rows = min(n * 128 // X.shape[1] - 1, trunc_size - 1)
-    no_of_zero_rows = n * 128 // X.shape[1] - 1
+    no_of_zero_rows = min(n * 128 // X.shape[1] - 1, trunc_size - 1)
     print('Zeroing out', no_of_zero_rows, 'rows.')
     dependency = get_dependency_matrix(no_of_zero_rows, X)
     nullspace = gaussian_nullspace(dependency)
@@ -54,4 +53,5 @@ while X.shape[1] > 1:
     X = (X @ new_domain) % 2
 
 assert authkey == X.T
+print('\n[!] Authentication key recovered successfully!\n')
 
