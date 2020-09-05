@@ -1,4 +1,4 @@
-from multiprocessing import Value
+from multiprocessing import Value, cpu_count
 import numpy as np
 from gmac import gmac, GF2p128, Polynomial
 from tqdm.auto import trange, tqdm
@@ -8,6 +8,7 @@ from joblib import Parallel, delayed
 
 # 2^n number of blocks
 n = 16
+cpu_count = cpu_count()
 
 def block2gf(block):
     assert len(block) == 16
@@ -93,7 +94,7 @@ def get_dependency_matrix(no_of_zero_rows, X):
     # rows = bits in Ad*X, col = bits in blocks
     def get_col(bit_idx):
         return (get_Ad_loc(bit_idx)[:no_of_zero_rows, :] @ X).flatten() % 2
-    return np.stack(Parallel(n_jobs=12)(delayed(get_col)(row_idx) for row_idx in trange(n * 128, desc='Fetching dependency matrix', leave=False)), axis=1)
+    return np.stack(Parallel(n_jobs=cpu_count)(delayed(get_col)(row_idx) for row_idx in trange(n * 128, desc='Fetching dependency matrix', leave=False)), axis=1)
 
 # ```
 # [...] [...] [...] [...] [...] size nonce

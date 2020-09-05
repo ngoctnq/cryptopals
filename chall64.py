@@ -1,6 +1,22 @@
-from multiprocessing import Pool, cpu_count
+from multiprocessing import Pool
 from time import time
-from chall64_helper import *
+from chall64_helper import (
+    generate_key,
+    AES_encrypt,
+    GF2p128,
+    gf2vec,
+    block2gf,
+    gmac,
+    np,
+    n,
+    cpu_count,
+    pack,
+    get_Ad,
+    get_dependency_matrix,
+    gaussian_nullspace,
+    set_value,
+    try_nullvec
+)
 
 # accumulator through the iterations
 X = np.eye(128, dtype=np.int8)
@@ -30,7 +46,7 @@ def gmac_ok(cipher, mac):
         
     return int.to_bytes(g.val, 16, 'big')[-trunc_size // 8:] == mac
 
-pool = Pool(cpu_count())
+pool = Pool(cpu_count)
 while X.shape[1] > 1:
     print(X.shape[1], 'basis vectors left.')
     no_of_zero_rows = min(n * 128 // X.shape[1] - 1, trunc_size - 1)
@@ -43,7 +59,7 @@ while X.shape[1] > 1:
     tic = time()
     nullvec = pool.starmap(
         try_nullvec,
-        [(gmac_ok, nullspace, encrypted, signature)] * cpu_count()
+        [(gmac_ok, nullspace, encrypted, signature)] * cpu_count
     )
     toc = time()
     print('That took', int(toc - tic), 'seconds.')
