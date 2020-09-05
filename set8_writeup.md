@@ -1663,6 +1663,11 @@ print('OK!')
 
 Ở ví dụ trên mình sử dụng tin nhắn trong 1 block; bạn có thể test với các tin nhắn dài hơn nhiều để xem nó hoạt động nhé.
 
+## Food for thought
+> Có authentication key rồi thì sao? Chúng ta có có private key xịn đâu? Nonce vẫn random mà.
+
+Có thể chúng ta không có private key xịn, nhưng chúng ta có thể làm rất nhiều thứ với authentication key. Thứ nhất, với mỗi lần sử dụng GCM, authentication key không thay đổi (vì nó chỉ phụ thuộc vào secret key). Với authentication key đó, và data AAD/encrypted, chúng ta có thể lấy được nonce bằng cách cộng trừ dần dần. Từ đó, chúng ta có thể forge tin nhắn fake bằng bitflips, như hướng dẫn của 2 bài tiếp theo.
+
 <sup>[1]</sup> Để debug, mình sẽ tặng bạn thêm một class $\mathrm{GF}(3)$ để có thể test xem các hàm đã đúng chưa. Hãy tạo các polynomial với các coefficients thuộc field này cho đơn giản dễ tính.
 
 ```python
@@ -1692,6 +1697,242 @@ class GF3:
 
 # [Challenge 64: Key-Recovery Attacks on GCM with a Truncated MAC](https://toadstyle.org/cryptopals/64.txt)
 
+Bài này thực sự vừa khó hiểu vừa khó code. Mình mất hơn 2 tuần chỉ tắc ở bài này vì code không chạy. Ngoài ra, trong code có sử dụng `trange` của package `tqdm` để hiện thanh quá trình, và `Parallel` của package `joblib` để tính toán song song.
+
+Việc dễ nhất làm trước là các hàm cơ bản sẽ dùng. Nên chú ý ở đây mình chuyển từ số sang vector theo phong cách hơi ngược đời: đặt lower-order bits lên trước vector, nên code tạo khá nhiều bug :(
+
+```python
+def block2gf(block):
+    assert len(block) == 16
+    return GF2p128(int.from_bytes(block, 'big'))
+
+def gf2vec(val: GF2p128):
+    ret = np.empty((128,), dtype=np.int8)
+    val = val.val
+    for i in range(128):
+        ret[i] = val & 1
+        val >>= 1
+    return ret
+
+sqr_mat = np.empty((128, 128), dtype=np.int8)
+for i in range(128):
+    sqr_mat[:, i] = gf2vec(GF2p128(1 << i) ** 2)
+
+def gf2mat(val: GF2p128):
+    ret = np.empty((128, 128), dtype=np.int8)
+    acc = GF2p128(1)
+    for i in range(128):
+        ret[:, i] = gf2vec(val * acc)
+        acc.val <<= 1
+    return ret
+
+def vec2gf(vec: np.array):
+    ret = 0
+    for bit in reversed(vec):
+        ret <<= 1
+        ret |= int(bit)
+    return GF2p128(ret)
+
+def vec2block(vec: np.array):
+    ret = 0
+    for bit in reversed(vec):
+        ret <<= 1
+        ret |= int(bit)
+    return int.to_bytes(ret, 16, 'big')
+```
+
+Tiếp theo là hàm lấy nullspace của một vector space sử dụng [Gaussian elimination](https://en.wikipedia.org/wiki/Gaussian_elimination#Finding_the_inverse_of_a_matrix) để lấy [row-reduced echelon form](https://en.wikipedia.org/wiki/Row_echelon_form#Reduced_row_echelon_form). Để giải thích khái niệm này nếu bạn không biết gì về đại số tuyến tính thì rất khó, nên mình sẽ chỉ nói vừa đủ thôi: row echelon form là khi ma trận có hình dạng là upper rectangular:
+
+```
+13 23  0 16  8
+ 0  0 12  7  0
+ 0  0  0  8  6
+ 0  0  0  0 10
+```
+
+Reduced là khi giá trị nonzero đầu tiên của các hàng trong ma trận là 1 (thay vì 13, 12, 8, 10 như ví dụ trên). Tuy nhiên, chúng ta đang làm việc với $\mathrm{GF}(2)$, nên các giá trị khác 0 chỉ có thể là 1, và chúng ta không phải reduce tay. Còn Gaussian elimination được sử dụng để tìm ma trận nghịch đảo trực chuẩn của một ma trận đầu vào; vậy làm thế nào chúng ta có thể lấy được nullspace? Bởi vì chúng trực chuẩn, và nếu ma trận đầu vào có rank $k$, thì "nghịch đảo" <sup>[2]</sup> của nó cũng chỉ có rank $k$ thôi, và các hàng còn lại là những vector không nằm trong row space nhưng vẫn độc lập và vuông góc (theo tính chất trực chuẩn). Do vuông góc nên khi nhân với các row vector sẽ cho giá trị 0, và sẽ tạo ra column nullspace theo định nghĩa.
+
+Code của Gaussian elimination để lấy nullspace như sau:
+
+```python
+def gaussian_nullspace(mat):
+    mat = mat.T
+    target = np.eye(mat.shape[0], dtype=np.int8)
+    idx = 0
+    rank = 0
+    for idx in trange(mat.shape[1], desc='Calculating the nullspace', leave=False):
+        if rank == min(mat.shape):
+            break
+        row_idx = np.flatnonzero(mat[rank:, idx]) + rank
+        if len(row_idx) == 0: continue
+        if row_idx[0] != rank:
+            # swap
+            mat[[rank, row_idx[0]]] = mat[[row_idx[0], rank]]
+            target[[rank, row_idx[0]]] = target[[row_idx[0], rank]]
+        # now subtract from the rest
+        for idx_ in row_idx[1:]:
+            mat[idx_, :] = (mat[idx_, :] - mat[rank, :]) % 2
+            target[idx_, :] = (target[idx_, :] - target[rank, :]) % 2
+        rank += 1
+
+    # transpose so column combination is easier
+    target = target[rank:, :].T
+    # remove duplicate vectors
+    target = np.unique(target, axis=1)
+    # remove zero vector if exists
+    target = target[:, np.any(target, axis=0)]
+    return target
+```
+
+Từ các vector bitflip chúng ta cần sinh ra ma trận $A_d$; trong đó mình viết thêm một hàm phụ sẽ lấy $A_d$ tương ứng với vector bitflip one-hot tại một điểm bất kỳ:
+
+```python
+def get_Ad(blocks):
+    # higher order/beginning of blocks first, based on Horner's method
+    # remember that this only deals with 2^i-th blocks.
+    acc = np.zeros((128, 128), dtype=np.int8)
+    if len(blocks.shape) == 1: blocks = np.reshape(blocks, (n, 128))
+    for i in range(blocks.shape[0]):
+        acc = ((gf2mat(vec2gf(blocks[i,:])) + acc) @ sqr_mat) % 2
+    return acc
+
+def get_Ad_loc(i):
+    payload = np.zeros((n, 128), dtype=np.int8)
+    payload[divmod(i, 128)] = 1
+    return get_Ad(payload)
+```
+
+Và hàm để lấy dependency matrix: ma trận này cho biết rằng với mỗi một vị trí bitflip, thì ma trận $A_dX$ sẽ thay đổi thế nào; và $X$ là vector space có chứa authentication key chúng ta cần tìm (ban đầu là identity matrix).
+
+```python
+def get_dependency_matrix(no_of_zero_rows, X):
+    # rows = bits in Ad*X, col = bits in blocks
+    def get_col(bit_idx):
+        return (get_Ad_loc(bit_idx)[:no_of_zero_rows, :] @ X).flatten() % 2
+    return np.stack(Parallel(n_jobs=cpu_count)(delayed(get_col)(row_idx) for row_idx in trange(n * 128, desc='Fetching dependency matrix', leave=False)), axis=1)
+```
+
+Và một hàm để sửa ciphertext theo các bitflip có trên: đây là giản đồ với dòng trên là số mũ của từng coefficient tương ứng với từng block, và dòng dưới là index của block đó:
+
+```
+[...] [...] [...] [...] [...] size nonce
+2^n+1  2^n   2^2    3    2^1
+  0     1    ...  2^n-2 2^n-1
+```
+
+Từ đó chúng ta tính được công thức tính block index và bit index cần sửa với mỗi một bitflip:
+```python
+def patch_encrypted(cipher, corrections):
+    # assume evenly padded + number of blocks is 2^n
+    corrections = np.reshape(corrections, (-1, 128))
+    for i in range(n):
+        block_idx = 2 ** n + 1 - 2 ** (n - i)
+        start_idx = block_idx * 16
+        end_idx = start_idx + 16
+        cipher = cipher[:start_idx] + \
+                 vec2block(gf2vec(block2gf(cipher[start_idx : end_idx])) ^ corrections[i, :]) + \
+                 cipher[end_idx:]
+    return cipher
+```
+
+Hàm check xem GMAC có đúng không: trong code không nhận AAD do bài này không cần.
+```python
+def gmac_ok(key, cipher, signature, nonce):
+        authkey = AES_encrypt(key, b'\x00' * 16)
+        authkey = GF2p128(int.from_bytes(authkey, 'big'))
+        content = cipher + b'\x00' * (-len(cipher) % 16) + pack('>2Q', 0, len(cipher))
+        g = GF2p128(0)
+        for i in range(0, len(content), 16):
+            b = GF2p128(int.from_bytes(content[i : i + 16], 'big'))
+            g += b
+            g *= authkey
+        s = AES_encrypt(key, nonce + b'\x00\x00\x00\x01')
+        s = GF2p128(int.from_bytes(s, 'big'))
+        g += s
+        
+        return int.to_bytes(g.val, 16, 'big')[-trunc_size // 8:] == signature
+```
+
+Và hàm xóc đĩa tìm một nullspace vector mà sẽ forge được một message fake theo MAC có sẵn. Chú ý, hàm `try_nullvec` cần phải để ở một file riêng để import vào mới có thể sử dụng `multiprocessing` để xóc nhiều đĩa một lúc, theo [một cái bug có từ lâu đời](https://stackoverflow.com/a/42383397/2327379).
+
+```python
+found = Value('b')
+def set_value(val):
+    with found.get_lock(): found.value = val
+
+def try_nullvec(gmac_ok, basis, encrypted, signature):
+    while True:
+        if found.value: break
+        nullvec = (basis @ np.random.randint(2, size=basis.shape[1])) % 2
+        if not nullvec.any(): continue
+        # remove get_Ad_nullvec
+        if gmac_ok(key, patch_encrypted(encrypted, nullvec), signature, nonce):
+        # if not ((get_Ad(nullvec)[:trunc_size] @ authkey) % 2).any():
+            set_value(1)
+            return nullvec
+```
+
+Để ý mình đã comment dòng này ra:
+
+```python
+if not ((get_Ad(nullvec)[:trunc_size] @ authkey) % 2).any():
+```
+
+Dòng này gần như tương tự với check GCM-MAC, tuy nhiên sử dụng luôn tính toán bằng vector nên sẽ nhanh hơn nhiều so với hàm trên. Tuy nhiên, sử dụng hàm này cần có giá trị của authentication key từ đầu, một giả thiết không hợp lý, nên mình không dùng (mà chỉ để đó để test thôi).
+
+Và sau đó thì chạy code và chờ nẫu ruột thôi!
+```python
+key = b'harem_enthusiast'
+authkey = gf2vec(block2gf(AES_encrypt(key, b'\x00' * 16)))
+
+# accumulator through the iterations
+X = np.eye(128, dtype=np.int8)
+pool = Pool(cpu_count)
+
+while X.shape[1] > 1:
+    print('[+]', X.shape[1], 'basis vectors left.')
+
+    print('Generating new message...')
+    msg = generate_key(2 ** n * 16 - 8)
+    nonce = generate_key(12)
+    encrypted, signature = gmac(key, msg, b'', nonce)
+    # get the last 32 bit
+    signature = signature[-trunc_size // 8:]
+    assert len(encrypted) == 2 ** n * 16
+
+    no_of_zero_rows = min(n * 128 // X.shape[1] - 1, trunc_size - 1)
+    print('Zeroing out', no_of_zero_rows, 'rows.')
+    dependency = get_dependency_matrix(no_of_zero_rows, X)
+    nullspace = gaussian_nullspace(dependency)
+
+    print('Rolling the dice until dawn...')
+    set_value(0)
+    tic = time()
+    nullvec = pool.starmap(
+        try_nullvec,
+        [(nullspace, encrypted, key, signature, nonce)] * cpu_count
+    )
+    toc = time()
+    # format_time formats number of seconds to readable format
+    print('That took', format_time(toc - tic))
+    for i in nullvec:
+        if i is not None:
+            nullvec = i
+            break
+
+    new_nullspace = (get_Ad(nullvec)[no_of_zero_rows:trunc_size] @ X) % 2
+    new_domain = gaussian_nullspace(new_nullspace)
+    X = (X @ new_domain) % 2
+
+assert (authkey == X.T).all()
+print('\n[!] Authentication key recovered successfully!\n')
+```
+
+Mình thử thành công với chữ ký ngắn (16-bit MAC, $2^8$-block messages) trong tầm 18', chữ ký khá dài (24-bit MAC, $2^{16}$-block messages) trong vòng tầm 6 tiếng sau khi ngủ dậy, và chữ ký dài (32-bit MAC, $2^{17}$-block messages) thì sau 6 tiếng vẫn còn chưa xong được loop đầu tiên (với 12 core chạy song song!)
+
+Ngoài ra, thực ra bạn không cần sinh ra tin nhắn mới mỗi lần chạy (và việc sinh lại ra tin nhắn mới khá lâu, tầm 1-2'). Vì vậy, bạn có thể dịch đoạn code đó ra ngoài `while` loop cho nhanh hơn; mình để đó để cho đúng tinh thần của đề bài thôi.
+
+<sup>[2]</sup> Thực tế thì một ma trận không full rank sẽ không có nghịch đảo, nhưng sẽ vẫn có [giả nghịch đảo](https://en.wikipedia.org/wiki/Moore%E2%80%93Penrose_inverse), nên mới sử dụng ngoặc kép như vậy.
 
 
 # [Challenge 65: Truncated-MAC GCM Revisited: Improving the Key-Recovery Attack via Ciphertext Length Extension](https://toadstyle.org/cryptopals/65.txt)
