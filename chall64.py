@@ -1,4 +1,5 @@
 from multiprocessing import Pool, cpu_count
+from time import time
 from chall64_helper import *
 
 # accumulator through the iterations
@@ -39,10 +40,13 @@ while X.shape[1] > 1:
 
     print('Rolling the dice until dawn...')
     set_value(0)
+    tic = time()
     nullvec = pool.starmap(
         try_nullvec,
         [(gmac_ok, nullspace, encrypted, signature)] * cpu_count()
     )
+    toc = time()
+    print('That took', int(toc - tic), 'seconds.')
     for i in nullvec:
         if i is not None:
             nullvec = i
