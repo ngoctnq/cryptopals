@@ -16,7 +16,8 @@ from chall64_helper import (
     get_dependency_matrix,
     gaussian_nullspace,
     set_value,
-    try_nullvec
+    try_nullvec,
+    format_time
 )
 
 key = b'harem_enthusiast'
@@ -61,7 +62,7 @@ while X.shape[1] > 1:
         [(gmac_ok, nullspace, encrypted, signature)] * cpu_count
     )
     toc = time()
-    print('That took', int(toc - tic), 'seconds.')
+    print('That took', format_time(toc - tic), 'seconds.')
     for i in nullvec:
         if i is not None:
             nullvec = i

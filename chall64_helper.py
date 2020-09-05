@@ -11,6 +11,26 @@ n = 17
 trunc_size = 8 * 4
 cpu_count = cpu_count()
 
+def format_time(sec):
+    sec = int(sec)
+    hh = sec // 3600
+    mm = (sec % 3600) // 60
+    ss = sec % 60
+    acc = ''
+    if hh > 0:
+        acc += f'{hh} hour'
+        if hh > 1: acc += 's'
+        acc += ' '
+    if mm > 0:
+        acc += f'{mm} minute'
+        if mm > 1: acc += 's'
+        acc += ' '
+    if ss > 0:
+        acc += f'{ss} second'
+        if ss > 1: acc += 's'
+        acc += ' '
+    return acc.strip()
+
 def block2gf(block):
     assert len(block) == 16
     return GF2p128(int.from_bytes(block, 'big'))
