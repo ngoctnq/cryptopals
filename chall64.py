@@ -10,6 +10,7 @@ from chall64_helper import (
     np,
     n,
     cpu_count,
+    trunc_size,
     pack,
     get_Ad,
     get_dependency_matrix,
@@ -18,16 +19,12 @@ from chall64_helper import (
     try_nullvec
 )
 
-# accumulator through the iterations
-X = np.eye(128, dtype=np.int8)
-
 key = b'harem_enthusiast'
 authkey = gf2vec(block2gf(AES_encrypt(key, b'\x00' * 16)))
 msg = generate_key(2 ** n * 16 - 8)
 nonce = generate_key(12)
 encrypted, signature = gmac(key, msg, b'', nonce)
 # get the last 32 bit
-trunc_size = 8 * 4
 signature = signature[-trunc_size // 8:]
 assert len(encrypted) == 2 ** n * 16
 
@@ -46,6 +43,8 @@ def gmac_ok(cipher, mac):
         
     return int.to_bytes(g.val, 16, 'big')[-trunc_size // 8:] == mac
 
+# accumulator through the iterations
+X = np.eye(128, dtype=np.int8)
 pool = Pool(cpu_count)
 while X.shape[1] > 1:
     print(X.shape[1], 'basis vectors left.')

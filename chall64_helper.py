@@ -8,6 +8,7 @@ from joblib import Parallel, delayed
 
 # 2^n number of blocks
 n = 16
+trunc_size = 8 * 4
 cpu_count = cpu_count()
 
 def block2gf(block):
