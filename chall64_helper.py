@@ -7,7 +7,7 @@ from struct import pack
 from joblib import Parallel, delayed
 
 # 2^n number of blocks
-n = 16
+n = 17
 trunc_size = 8 * 4
 cpu_count = cpu_count()
 
