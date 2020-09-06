@@ -1878,7 +1878,7 @@ def try_nullvec(gmac_ok, basis, encrypted, signature):
 if not ((get_Ad(nullvec)[:trunc_size] @ authkey) % 2).any():
 ```
 
-Dòng này gần như tương tự với check GCM-MAC, tuy nhiên sử dụng luôn tính toán bằng vector nên sẽ nhanh hơn nhiều so với hàm trên. Tuy nhiên, sử dụng hàm này cần có giá trị của authentication key từ đầu, một giả thiết không hợp lý, nên mình không dùng (mà chỉ để đó để test thôi).
+Dòng này gần như tương tự với check GCM-MAC, tuy nhiên sử dụng luôn tính toán bằng vector nên sẽ nhanh hơn nhiều so với hàm trên. Tuy nhiên, do server thực tế chắc sẽ không tính MAC nhanh (để tránh bị bruteforce như thế này), nên mình không dùng (mà chỉ để đó để test thôi).
 
 Và sau đó thì chạy code và chờ nẫu ruột thôi!
 ```python
@@ -1928,9 +1928,11 @@ assert (authkey == X.T).all()
 print('\n[!] Authentication key recovered successfully!\n')
 ```
 
-Mình thử thành công với chữ ký ngắn (16-bit MAC, $2^8$-block messages) trong tầm 18', chữ ký khá dài (24-bit MAC, $2^{16}$-block messages) trong vòng tầm 6 tiếng sau khi ngủ dậy, và chữ ký dài (32-bit MAC, $2^{17}$-block messages) thì sau 6 tiếng vẫn còn chưa xong được loop đầu tiên (với 12 core chạy song song!)
+Mình thử thành công với chữ ký ngắn (16-bit MAC, $2^8$-block messages) trong tầm 18', chữ ký khá dài (24-bit MAC, $2^{16}$-block messages) trong vòng hơn 6 tiếng, và chữ ký dài (32-bit MAC, $2^{17}$-block messages) thì sau 18 tiếng vẫn còn chưa xong được loop đầu tiên (với 12 core chạy song song!) Xác suất để ra được một forgery là $2^{16}$, và thử tuần tự không tốt hơn xóc đĩa, vì đằng nào cũng có tận $2^{128} - 1$ lựa chọn cho bitflips. Kể cả cho rằng tận dụng được tối đa 12 core, với mỗi lần thử GMAC forgery mất 10s (vì tính MAC lúc nào cũng lâu để tránh bruteforce như thế này này), thì ước lượng mỗi lần thử của chúng ta mất $2^{16} \times 10 / 12 / 60 / 60 =$ tận hơn 15 tiếng. Nhân phẩm kém như mình thì còn chậm nữa: với tin nhắn $2^{16}$-bit và 24-bit MAC, mình mất tận 30' cho một lần xóc đĩa, thì ước lượng trong trường hợp này mình sẽ mất $0.5\times 2^8 =$ tận 128 tiếng (!) Nói chung là toang.
 
-Ngoài ra, thực ra bạn không cần sinh ra tin nhắn mới mỗi lần chạy (và việc sinh lại ra tin nhắn mới khá lâu, tầm 1-2'). Vì vậy, bạn có thể dịch đoạn code đó ra ngoài `while` loop cho nhanh hơn; mình để đó để cho đúng tinh thần của đề bài thôi.
+Ngoài ra, có một số điều bạn có thể làm để tăng tốc code của bạn:
+- Thực ra bạn không cần sinh ra tin nhắn mới mỗi lần chạy (và việc sinh lại ra tin nhắn mới khá lâu, tầm 1-2'). Vì vậy, bạn có thể dịch đoạn code đó ra ngoài `while` loop cho nhanh hơn; mình để đó để cho đúng tinh thần của đề bài thôi. Còn nếu bạn vẫn muốn tạo message mới mỗi lần, bạn có thể song song hoá code đó.
+- Sau mỗi iteration, bạn sẽ giảm được số chiều của vector space chứa authentication key, và từ đó số diff bit của MAC bạn có thể đặt về 0 tăng lên, và tốc độ xóc đĩa của bạn tăng lên chóng mặt. Tuy nhiên, khi số bits đó tăng đến mức tối đa (bằng số bit của MAC trừ 1), thì khoảng thời gian sinh ra dependency matrix và nullspace chiếm đa số thời gian, đâu đó gấp ~10 lần khoảng thời gian xóc đĩa. Đồng thời, mỗi một loop iteration với lượng 0-bit tối đa đó chỉ giảm được một chiều trong authentication key vector space; trong khi nếu bạn chỉ zero ít hơn vậy và tăng thời gian xóc đĩa lên, thì số chiều giảm xuống lại tăng lên theo cấp số nhân (vì 1 quá ít). Vì vậy, bạn có thể tạm thống kê ra, đặt bao nhiêu diff bit của MAC về 0 sẽ cho bạn kết quả tối ưu về thời gian.
 
 <sup>[2]</sup> Thực tế thì một ma trận không full rank sẽ không có nghịch đảo, nhưng sẽ vẫn có [giả nghịch đảo](https://en.wikipedia.org/wiki/Moore%E2%80%93Penrose_inverse), nên mới sử dụng ngoặc kép như vậy.
 
