@@ -1945,6 +1945,8 @@ Ngoài ra, có một số điều bạn có thể làm để tăng tốc code c�
 
 # [Challenge 65: Truncated-MAC GCM Revisited: Improving the Key-Recovery Attack via Ciphertext Length Extension](https://toadstyle.org/cryptopals/65.txt)
 
+Do bài trước mình đã quá buồn với vấn đề thời gian nên bài này mình sẽ giới hạn độ phức tạp một cách đáng kể: giới hạn mỗi tin nhắn chỉ có 3 block (256 bits có thể nghịch), và GMAC chỉ lấy 1 byte cho dễ forge.
+
 
 # [Challenge 66: Exploiting Implementation Errors in Diffie-Hellman](https://toadstyle.org/cryptopals/66.txt)
 
