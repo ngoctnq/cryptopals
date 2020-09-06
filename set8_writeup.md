@@ -1928,7 +1928,12 @@ assert (authkey == X.T).all()
 print('\n[!] Authentication key recovered successfully!\n')
 ```
 
-Mình thử thành công với chữ ký ngắn (16-bit MAC, $2^8$-block messages) trong tầm 18', chữ ký khá dài (24-bit MAC, $2^{16}$-block messages) trong vòng hơn 6 tiếng, và chữ ký dài (32-bit MAC, $2^{17}$-block messages) thì sau 18 tiếng vẫn còn chưa xong được loop đầu tiên (với 12 core chạy song song!) Xác suất để ra được một forgery là $2^{16}$, và thử tuần tự không tốt hơn xóc đĩa, vì đằng nào cũng có tận $2^{128} - 1$ lựa chọn cho bitflips. Kể cả cho rằng tận dụng được tối đa 12 core, với mỗi lần thử GMAC forgery mất 10s (vì tính MAC lúc nào cũng lâu để tránh bruteforce như thế này này), thì ước lượng mỗi lần thử của chúng ta mất $2^{16} \times 10 / 12 / 60 / 60 =$ tận hơn 15 tiếng. Nhân phẩm kém như mình thì còn chậm nữa: với tin nhắn $2^{16}$-bit và 24-bit MAC, mình mất tận 30' cho một lần xóc đĩa, thì ước lượng trong trường hợp này mình sẽ mất $0.5\times 2^8 =$ tận 128 tiếng (!) Nói chung là toang.
+Mình thử thành công với chữ ký ngắn (16-bit MAC, $2^8$-block messages) trong tầm 18', chữ ký khá dài (24-bit MAC, $2^{16}$-block messages) trong vòng hơn 6 tiếng, và chữ ký dài (32-bit MAC, $2^{17}$-block messages) thì sau 18 tiếng vẫn còn chưa xong được loop đầu tiên (với 12 core chạy song song!)
+
+![](https://images.viblo.asia/d189a21e-d1d9-4d84-aee2-59d99dcbf892.png)
+<div align="center"><sup>Ai khóc nỗi đau này.</sup></div>
+
+Xác suất để ra được một forgery là $2^{16}$, và thử tuần tự không tốt hơn xóc đĩa, vì đằng nào cũng có tận $2^{128} - 1$ lựa chọn cho bitflips. Kể cả cho rằng tận dụng được tối đa 12 core, với mỗi lần thử GMAC forgery mất 10s (vì tính MAC lúc nào cũng lâu để tránh bruteforce như thế này này), thì ước lượng mỗi lần thử của chúng ta mất $2^{16} \times 10 / 12 / 60 / 60 =$ tận hơn 15 tiếng. Nhân phẩm kém như mình thì còn chậm nữa: với tin nhắn $2^{16}$-bit và 24-bit MAC, mình mất tận 30' cho một lần xóc đĩa, thì ước lượng trong trường hợp này mình sẽ mất $0.5\times 2^8 =$ tận 128 tiếng (!) Nói chung là toang.
 
 Ngoài ra, có một số điều bạn có thể làm để tăng tốc code của bạn:
 - Thực ra bạn không cần sinh ra tin nhắn mới mỗi lần chạy (và việc sinh lại ra tin nhắn mới khá lâu, tầm 1-2'). Vì vậy, bạn có thể dịch đoạn code đó ra ngoài `while` loop cho nhanh hơn; mình để đó để cho đúng tinh thần của đề bài thôi. Còn nếu bạn vẫn muốn tạo message mới mỗi lần, bạn có thể song song hoá code đó.
