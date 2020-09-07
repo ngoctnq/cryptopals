@@ -66,9 +66,9 @@ while X.shape[1] > 1:
     t = (gf2mat(block2gf(pack('>2Q', 0, len(encrypted)))) - gf2mat(block2gf(pack('>2Q', 0, len(lengthened))))) % 2
 
     no_of_zero_rows = min(n * 128 // X.shape[1], trunc_size - 1)
-    dependency = get_dependency_matrix(no_of_zero_rows, X)
+    print(X.shape[1], 'basis vectors left, forcing', no_of_zero_rows, 'rows.')
     
-    print(X.shape[1], 'basis vector left, forcing', no_of_zero_rows, 'rows.')
+    dependency = get_dependency_matrix(no_of_zero_rows, X)
 
     inverse, nullspace = gaussian_elimination(dependency)
     bitflips = (inverse @ (t[:no_of_zero_rows] @ X).flatten()[:inverse.shape[1]] % 2) % 2

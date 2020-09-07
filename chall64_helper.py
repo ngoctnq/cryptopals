@@ -125,16 +125,13 @@ def get_dependency_matrix(no_of_zero_rows, X):
 # ```
 
 def patch_encrypted(cipher, corrections):
-    # assume evenly padded + number of blocks is 2^n
+    # break dowwn the cipher
+    blocks = [cipher[i:i+16] for i in range(0, len(cipher), 16)]
     corrections = np.reshape(corrections, (-1, 128))
-    for i in range(n):
-        block_idx = 2 ** n + 1 - 2 ** (n - i)
-        start_idx = block_idx * 16
-        end_idx = start_idx + 16
-        cipher = cipher[:start_idx] + \
-                 vec2block(gf2vec(block2gf(cipher[start_idx : end_idx])) ^ corrections[i, :]) + \
-                 cipher[end_idx:]
-    return cipher
+    for i in range(corrections.shape[0]):
+        idx = -2 * 2 ** i + 1
+        blocks[idx] = vec2block(gf2vec(block2gf(blocks[idx])) ^ corrections[-i-1])
+    return b''.join(blocks)
 
 found = Value('b')
 def set_value(val):
