@@ -38,7 +38,7 @@ while X.shape[1] > 1:
     signature = signature[-trunc_size // 8:]
     assert len(encrypted) == 2 ** n * 16
 
-    no_of_zero_rows = min(n * 128 // X.shape[1] - 1, trunc_size - 1)
+    no_of_zero_rows = min(n * 128 // X.shape[1], trunc_size) - 1
     print('Zeroing out', no_of_zero_rows, 'rows.')
     dependency = get_dependency_matrix(no_of_zero_rows, X)
     nullspace = gaussian_nullspace(dependency)

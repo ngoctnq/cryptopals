@@ -1777,8 +1777,6 @@ def gaussian_nullspace(mat):
 
     # transpose so column combination is easier
     target = target[rank:, :].T
-    # remove duplicate vectors
-    target = np.unique(target, axis=1)
     # remove zero vector if exists
     target = target[:, np.any(target, axis=0)]
     return target
@@ -1823,16 +1821,13 @@ Và một hàm để sửa ciphertext theo các bitflip có trên: đây là gi�
 Từ đó chúng ta tính được công thức tính block index và bit index cần sửa với mỗi một bitflip:
 ```python
 def patch_encrypted(cipher, corrections):
-    # assume evenly padded + number of blocks is 2^n
+    # break dowwn the cipher
+    blocks = [cipher[i:i+16] for i in range(0, len(cipher), 16)]
     corrections = np.reshape(corrections, (-1, 128))
-    for i in range(n):
-        block_idx = 2 ** n + 1 - 2 ** (n - i)
-        start_idx = block_idx * 16
-        end_idx = start_idx + 16
-        cipher = cipher[:start_idx] + \
-                 vec2block(gf2vec(block2gf(cipher[start_idx : end_idx])) ^ corrections[i, :]) + \
-                 cipher[end_idx:]
-    return cipher
+    for i in range(corrections.shape[0]):
+        idx = -2 * 2 ** i + 1
+        blocks[idx] = vec2block(gf2vec(block2gf(blocks[idx])) ^ corrections[-i-1])
+    return b''.join(blocks)
 ```
 
 Hàm check xem GMAC có đúng không: trong code không nhận AAD do bài này không cần.
@@ -1878,7 +1873,7 @@ def try_nullvec(gmac_ok, basis, encrypted, signature):
 if not ((get_Ad(nullvec)[:trunc_size] @ authkey) % 2).any():
 ```
 
-Dòng này gần như tương tự với check GCM-MAC, tuy nhiên sử dụng luôn tính toán bằng vector nên sẽ nhanh hơn nhiều so với hàm trên. Tuy nhiên, do server thực tế chắc sẽ không tính MAC nhanh (để tránh bị bruteforce như thế này), nên mình không dùng (mà chỉ để đó để test thôi).
+Dòng này gần như tương tự với check GCM-MAC, tuy nhiên sử dụng luôn tính toán bằng vector nên sẽ nhanh hơn nhiều so với hàm trên. Tuy nhiên, do server thực tế đương nhiên sẽ không tính MAC bằng cách check xem các bitflips có tạo GMAC hợp lệ không (LOL), nên mình không dùng (mà chỉ để đó để test thôi).
 
 Và sau đó thì chạy code và chờ nẫu ruột thôi!
 ```python
@@ -1900,7 +1895,7 @@ while X.shape[1] > 1:
     signature = signature[-trunc_size // 8:]
     assert len(encrypted) == 2 ** n * 16
 
-    no_of_zero_rows = min(n * 128 // X.shape[1] - 1, trunc_size - 1)
+    no_of_zero_rows = min(n * 128 // X.shape[1], trunc_size) - 1
     print('Zeroing out', no_of_zero_rows, 'rows.')
     dependency = get_dependency_matrix(no_of_zero_rows, X)
     nullspace = gaussian_nullspace(dependency)
@@ -1928,12 +1923,25 @@ assert (authkey == X.T).all()
 print('\n[!] Authentication key recovered successfully!\n')
 ```
 
-Mình thử thành công với chữ ký ngắn (16-bit MAC, $2^8$-block messages) trong tầm 18', chữ ký khá dài (24-bit MAC, $2^{16}$-block messages) trong vòng hơn 6 tiếng, và chữ ký dài (32-bit MAC, $2^{17}$-block messages) thì sau 18 tiếng vẫn còn chưa xong được loop đầu tiên (với 12 core chạy song song!)
+Các bạn có thể thấy dòng này hơi khó giải thích:
+```python
+no_of_zero_rows = min(n * 128 // X.shape[1], trunc_size) - 1
+```
 
-![](https://images.viblo.asia/d189a21e-d1d9-4d84-aee2-59d99dcbf892.png)
+Mình sẽ chia ra 2 phần giải thích riêng:
+- Số rows bị về 0 phải bé hơn $\lfloor 128n/|V_d|\rfloor$: nếu không, ma trận `dependency` sẽ full rank khiến column nullspace sẽ là space rỗng, và chúng ta không thể forge tin nhắn giả mới.
+- Số rows phải bé hơn số bit của MAC, vì nếu không chúng ta không thể rút gọn số basis vector của vector space chứa authentication key:
+```python
+new_nullspace = (get_Ad(nullvec)[no_of_zero_rows:trunc_size] @ X) % 2
+```
+Để ý rằng do chúng ta zero hết các bit MAC, nên không có tí thông tin mới nào cả (cắt $A_d$ đến rỗng luôn), và nullspace của ma trận rỗng sẽ là identity $I$, nên không giới hạn được gì về domain cả.
+
+Mình thử thành công với chữ ký ngắn (16-bit MAC, $2^8$-block messages) trong tầm 18', chữ ký khá dài (24-bit MAC, $2^{16}$-block messages) trong vòng hơn 6 tiếng, và chữ ký dài (32-bit MAC, $2^{17}$-block messages) thì sau 33 tiếng vẫn còn chưa xong được loop đầu tiên (với 12 core chạy song song!)
+
+![](https://images.viblo.asia/d0467ab5-3429-4567-afbf-c57318887b57.png)
 <div align="center"><sup>Ai khóc nỗi đau này.</sup></div>
 
-Xác suất để ra được một forgery là $2^{16}$, và thử tuần tự không tốt hơn xóc đĩa, vì đằng nào cũng có tận $2^{128} - 1$ lựa chọn cho bitflips. Kể cả cho rằng tận dụng được tối đa 12 core, với mỗi lần thử GMAC forgery mất 10s (vì tính MAC lúc nào cũng lâu để tránh bruteforce như thế này này), thì ước lượng mỗi lần thử của chúng ta mất $2^{16} \times 10 / 12 / 60 / 60 =$ tận hơn 15 tiếng. Nhân phẩm kém như mình thì còn chậm nữa: với tin nhắn $2^{16}$-bit và 24-bit MAC, mình mất tận 30' cho một lần xóc đĩa, thì ước lượng trong trường hợp này mình sẽ mất $0.5\times 2^8 =$ tận 128 tiếng (!) Nói chung là toang.
+Xác suất để ra được một forgery là $2^{16}$, và thử tuần tự không tốt hơn xóc đĩa, vì đằng nào cũng có tận $2^{128} - 1$ lựa chọn cho bitflips. Kể cả cho rằng tận dụng được tối đa 12 core, với mỗi lần thử GMAC forgery mất 10s (vì tính MAC lúc nào cũng lâu để tránh bruteforce như thế này này), thì ước lượng mỗi lần thử của chúng ta mất $2^{16} \times 10 / 12 / 60 / 60 =$ tận hơn 15 tiếng — đó là chưa tính việc có core this core that (các core lẻ yếu hơn), và chạy song song không nhanh cấp số nhân do không hoàn hảo/còn code quản lý tiến trình song song, v.v... Nhân phẩm kém như mình thì còn chậm nữa: với tin nhắn $2^{16}$-bit và 24-bit MAC, mình mất tận 30' cho một lần xóc đĩa, thì ước lượng trong trường hợp này mình sẽ mất $0.5\times 2^8 =$ tận 128 tiếng (!) Nói chung là toang. <sup>[3]</sup>
 
 Ngoài ra, có một số điều bạn có thể làm để tăng tốc code của bạn:
 - Thực ra bạn không cần sinh ra tin nhắn mới mỗi lần chạy (và việc sinh lại ra tin nhắn mới khá lâu, tầm 1-2'). Vì vậy, bạn có thể dịch đoạn code đó ra ngoài `while` loop cho nhanh hơn; mình để đó để cho đúng tinh thần của đề bài thôi. Còn nếu bạn vẫn muốn tạo message mới mỗi lần, bạn có thể song song hoá code đó.
@@ -1942,11 +1950,166 @@ Ngoài ra, có một số điều bạn có thể làm để tăng tốc code c�
 
 <sup>[2]</sup> Thực tế thì một ma trận không full rank sẽ không có nghịch đảo, nhưng sẽ vẫn có [giả nghịch đảo](https://en.wikipedia.org/wiki/Moore%E2%80%93Penrose_inverse), nên mới sử dụng ngoặc kép như vậy.
 
+<sup>[3]</sup> Sử dụng code check forgery bằng authkey và nhân ma trận thì với setup $2^{17}$-bit message + 32-bit GMAC mất 6 tiếng 45 phút để tìm ra forgery đầu tiên, và chỉ 11' cho forgery ở iteration 2.
+
 
 # [Challenge 65: Truncated-MAC GCM Revisited: Improving the Key-Recovery Attack via Ciphertext Length Extension](https://toadstyle.org/cryptopals/65.txt)
 
-Do bài trước mình đã quá buồn với vấn đề thời gian nên bài này mình sẽ giới hạn độ phức tạp một cách đáng kể: giới hạn mỗi tin nhắn chỉ có 3 block (256 bits có thể nghịch), mỗi tin nhắn có block cuối không đủ, và GMAC chỉ lấy 1 byte cho dễ forge. Đồng thời, tin nhắn ban đầu cần ngắn hơn giới hạn, vì nếu bằng thì dùng code của bài trước là xong.
+Do bài trước mình đã quá buồn với vấn đề thời gian nên bài này mình sẽ giới hạn độ phức tạp một cách đáng kể: giới hạn mỗi tin nhắn chỉ có $2^4-1$ block (512 bits có thể nghịch), mỗi tin nhắn có block cuối không đủ, và GMAC chỉ lấy 1 byte cho dễ forge. Đồng thời, tin nhắn ban đầu cần ngắn hơn giới hạn chấp nhận của verification system, vì nếu bằng thì dùng code của bài trước là xong.
 
+Đầu tiên, chúng ta sửa code Gaussian Eliminination chút để lấy được cả inverse matrix (để tính particular solution sau này):
+```python
+def gaussian_elimination(mat):
+    target = np.eye(mat.shape[0], dtype=np.int8)
+    idx = 0
+    rank = 0
+    for idx in range(mat.shape[1]):
+        if rank == min(mat.shape):
+            break
+        row_idx = np.flatnonzero(mat[:, idx])
+        if (row_idx < rank).all(): continue
+        if rank not in row_idx:
+            rank_idx = bisect(row_idx, rank)
+            # swap
+            mat[[rank, row_idx[rank_idx]]] = mat[[row_idx[rank_idx], rank]]
+            target[[rank, row_idx[rank_idx]]] = target[[row_idx[rank_idx], rank]]
+            row_idx[rank_idx] = rank
+        # now subtract from the rest
+        for idx_ in row_idx:
+            if idx_ == rank: continue
+            mat[idx_, :] = (mat[idx_, :] - mat[rank, :]) % 2
+            target[idx_, :] = (target[idx_, :] - target[rank, :]) % 2
+        rank += 1
+
+    # get the nullspace
+    nullspace = target[rank:, :].T    
+    # inverse
+    inverse = target[:rank, :].T
+    
+    return inverse, nullspace
+```
+
+Thay vì chỉ kéo dài block cuối như đề bài, chúng ta kéo dài đến độ dài tối đa cho phép của verification system cho nó ngầu:
+```python
+# n defined like chall64
+block_count = 2 ** n - 1
+```
+
+Và code bê gần như nguyên từ challenge 64, có chút chỉnh sửa:
+```python
+# authkey space
+X = np.eye(128, dtype=np.int8)
+
+while X.shape[1] > 1:
+    # capture a new packet
+    msg = generate_key(randrange(block_count * 16 - 8))
+    nonce = generate_key(12)
+    encrypted, signature = gmac(key, msg, b'', nonce)
+    signature = signature[-trunc_size // 8:]
+
+    # pad the message to be full width
+    lengthened = encrypted + bytes(-len(encrypted) % 16)
+    lengthened = bytes(block_count * 16 - len(lengthened)) + lengthened
+
+    t = (gf2mat(block2gf(pack('>2Q', 0, len(encrypted)))) - gf2mat(block2gf(pack('>2Q', 0, len(lengthened))))) % 2
+
+    no_of_zero_rows = min(n * 128 // X.shape[1], trunc_size - 1)
+
+    print(X.shape[1], 'basis vector left, forcing', no_of_zero_rows, 'rows.')
+    
+    dependency = get_dependency_matrix(no_of_zero_rows, X)
+
+    inverse, nullspace = gaussian_elimination(dependency)
+    bitflips = (inverse @ (t[:no_of_zero_rows] @ X).flatten()[:inverse.shape[1]] % 2) % 2
+    if nullspace.size == 0:
+        maxtry = 1
+    else:
+        maxtry = 1024
+    found = False
+    while maxtry:
+        if gmac_ok(patch_encrypted(lengthened, bitflips), signature, nonce):
+            found = True
+            break
+        coeff = np.random.randint(2, size=nullspace.shape[1])
+        bitflips = (bitflips + nullspace @ coeff) % 2
+        maxtry -= 1
+    # if not success, try with a new packet
+    if not found: continue
+    
+    new_nullspace = ((get_Ad(bitflips) + t)[no_of_zero_rows:trunc_size] @ X) % 2
+    _, new_domain = gaussian_elimination(new_nullspace)
+    X = (X @ new_domain) % 2
+```
+
+Chúng ta sẽ phân tích từng đoạn code khác challenge trước:
+- Code mod cipher để có độ dài tối đa server cho phép:
+```python
+# pad the message to be full width
+lengthened = encrypted + bytes(-len(encrypted) % 16)
+lengthened = bytes(block_count * 16 - len(lengthened)) + lengthened
+```
+
+Cipher trong hàm GMAC bình thường đã được pad đuôi bằng `\x00` byte cho đủ block, nên chúng ta cũng làm vậy. Ngoài ra, chúng ta pad tất cả các block trước bằng 0: để ý khi tính MAC, chúng ta convert block ra số nguyên $c_i$ rồi nhân với authentication key $h$, và các block đến trước thì nhân với số mũ của $h$ cao. Vì vậy, nếu chúng ta pad trái $k$ empty block thì công thức của MAC sẽ thay đổi (không tính thay đổi trong block độ dài của content) là $\sum_{i=1}^k0\times h^{l+i}=0$.
+
+- Code tính thay đổi coefficent của $h$ do thay đổi cipher length:
+```python
+t = (gf2mat(block2gf(pack('>2Q', 0, len(encrypted)))) - gf2mat(block2gf(pack('>2Q', 0, len(lengthened))))) % 2
+```
+
+Khá là tiện lợi khi đây là block bậc $2^0=1$, tác dụng của nó sẽ đến ở dưới.
+
+- Số dòng chúng ta sẽ ép cho bằng $t$ ở trên:
+```python
+no_of_zero_rows = min(n * 128 // X.shape[1], trunc_size - 1)
+```
+
+Code phần này khác ở phần trước rằng term đầu tiên trong hàm `min` không còn phần trừ 1: trước chúng ta cần nullspace không rỗng để ra được vector bitflip hợp lệ (khác vector 0), tuy nhiên bây giờ do chúng ta phải tính cả particular solution (thay vì chỉ mỗi homogeneous solution) nên không có vector nullspace vẫn *có thể* thoả mãn. Tuy nhiên, hãy để ý rằng giả sử chúng ta đang ép 4 rows bằng $t$ nhưng signature có 8 bit, chúng ta sẽ phải cầu trời sao cho vận may cho chúng ta particular solution hợp lệ (forgery thành công) với xác suất $2^{-4}$. Với kích cỡ signature lớn hơn và độ dài tin nhắn ngắn hơn thì xác suất này càng ngày càng thấp, và bạn có thể xem xét việc cứ trừ 1 khỏi term này. Nếu làm vậy, chúng ta vẫn không chắc liệu có thể chắc chắn có được solution hợp lệ, nhưng có thêm degree of freedom thì có nhiều cơ hội xóc đĩa ăn được hơn.
+
+Tìm particular solution cho forgery:
+```python
+inverse, nullspace = gaussian_elimination(dependency)
+bitflips = (inverse @ (t[:no_of_zero_rows] @ X).flatten()[:inverse.shape[1]] % 2) % 2
+```
+
+Sử dụng Gaussian Elimination chúng ta sẽ có được (pseudo)inverse của ma trận `dependency`, và chỉ cần nhân nó với kết quả mong muốn sẽ có được particular solution. Tương tự như bài trên, thì $t$ ở đây là kết quả $A_d$ chúng ta mong muốn, và với bước đã thu hẹp vector space chứa $h$ là $X$, thì chúng ta phải map $t$ với $X$ như chúng ta đã map $A_d$ với $X$.
+
+- Check kích cỡ nullspace để xem cần xóc không:
+```python
+if nullspace.size == 0:
+    maxtry = 1
+else:
+    maxtry = 1024
+```
+
+Nếu nullspace rỗng thì chúng ta không thể làm gì ngoài việc cầu nguyện là particular solution tương ứng với một valid bitflips. Nếu nullspace không rỗng, chúng ta có thể sample vector trong nullspace như bài trước, rồi cộng với particular solution để ra một solution khác vẫn thoả mãn. Đây là cách lấy các solution khác nhau: general solution là một particular solution bất kỳ + 1 vector bất kỳ trong nullspace. `maxtry` ở đây là số lần server/verifier cho query với một ciphertext bất kỳ.
+
+- Tương tự bài trước xóc đĩa tìm nghiệm:
+```python
+while maxtry:
+    if gmac_ok(patch_encrypted(lengthened, bitflips), signature, nonce):
+        found = True
+        break
+    coeff = np.random.randint(2, size=nullspace.shape[1])
+    bitflips = (bitflips + nullspace @ coeff) % 2
+    maxtry -= 1
+# if not success, try with a new packet
+if not found: continue
+```
+
+- Update domain của authentication key $h$:
+```python
+new_nullspace = ((get_Ad(bitflips) + t)[no_of_zero_rows:trunc_size] @ X) % 2
+_, new_domain = gaussian_elimination(new_nullspace)
+X = (X @ new_domain) % 2
+```
+
+Điểm duy nhất khác nhau của phần này với bài trước là chúng ta có cộng $t$ với $A_d$. Điều này là do bài trước chúng ta không sửa length block nên để MAC không đổi chỉ cần check các block chúng ta sửa thôi ($A_dX=0$). Tuy nhiên, lần này thay đổi length block gây thêm thay đổi là $t$ nữa, nên chúng ta phải cancel out.
+
+Xong xuôi tất cả rồi thì check xem ăn được key chưa nào:
+```python
+assert (X.T == authkey).all()
+print('OK')
+```
 
 # [Challenge 66: Exploiting Implementation Errors in Diffie-Hellman](https://toadstyle.org/cryptopals/66.txt)
 
